@@ -17,6 +17,7 @@ DEBUG: bool = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 PORT: int = int(os.getenv("PORT", "8000"))
 DEFAULT_COOKIE_TTL: int = int(os.getenv("DEFAULT_COOKIE_TTL", "3600"))
 MAX_TABS: int = int(os.getenv("MAX_TABS", "3"))
+MAX_CACHED_DOMAINS: int = int(os.getenv("MAX_CACHED_DOMAINS", "10"))
 BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "true").lower() not in ("false", "0", "no")
 VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() in ("true", "1", "yes")
 

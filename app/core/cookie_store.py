@@ -79,5 +79,5 @@ class CookieStore:
         }
 
 
-# Global instance
-store = CookieStore(max_domains=10)
+from app.core.config import MAX_CACHED_DOMAINS
+store = CookieStore(max_domains=MAX_CACHED_DOMAINS)
