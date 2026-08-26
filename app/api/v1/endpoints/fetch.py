@@ -245,12 +245,46 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             page_load_state=req.page_load_state,
             cookies=effective_cookies,
         )
+        
+        logs.append(f"[SOLVER] Browser tab finished in {br.elapsed_ms}ms -> Status: {br.status_code} | Cookies harvested: {len(br.cookies)}")
+
+        # Cache harvested cookies, session User-Agent, and resolved redirect target
+        if br.cookies:
+            store.set(domain, br.cookies, ua=br.user_agent, ttl=req.cookie_ttl)
+            logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) and User-Agent for '{domain}'")
+            if br.final_url and br.final_url != req.url:
+                _cache_redirect(domain, br.final_url)
+                logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
+                
+        extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
+        if req.selector:
+            logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")
+
+        total_ms = int((time.monotonic() - t_start) * 1000)
+        logs.append(f"[DONE] Request resolved via Browser Solver in {total_ms}ms")
+        logger.info("✓ browser | %s -> %d", req.url, br.status_code)
+
+        return FetchResponse(
+            status_code=br.status_code,
+            headers=br.headers,
+            body=br.body,
+            cookies=br.cookies,
+            url=br.final_url,
+            protocol=None,
+            extracted=extracted,
+            logs=logs,
+            meta=RequestMeta(
+                via="browser",
+                request_type="browser",
+                preset=None,
+                cf_bypass_attempted=True,
+                cache_hit=False,
+                cookies_used=len(effective_cookies),
+                user_agent=br.user_agent or effective_ua,
+            ),
+        )
+
     except Exception as exc:
-        if is_solver and wait_event:
-            async with _coalesce_lock:
-                if domain in _coalesce_events:
-                    _coalesce_events[domain].set()
-                    del _coalesce_events[domain]
         total_ms = int((time.monotonic() - t_start) * 1000)
         logs.append(f"[ERROR] Browser solver execution error: {exc} ({total_ms}ms)")
         logs.append("[FAIL] Pipeline failed to resolve request")
@@ -274,48 +308,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             ),
         )
 
-    logs.append(f"[SOLVER] Browser tab finished in {br.elapsed_ms}ms -> Status: {br.status_code} | Cookies harvested: {len(br.cookies)}")
-
-    # Cache harvested cookies, session User-Agent, and resolved redirect target
-    if br.cookies:
-        store.set(domain, br.cookies, ua=br.user_agent, ttl=req.cookie_ttl)
-        logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) and User-Agent for '{domain}'")
-        if br.final_url and br.final_url != req.url:
-            _cache_redirect(domain, br.final_url)
-            logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
-            
-    # Wake up any requests waiting on this domain's browser solve
-    if is_solver and wait_event:
-        async with _coalesce_lock:
-            if domain in _coalesce_events:
-                _coalesce_events[domain].set()
-                del _coalesce_events[domain]
-
-
-    extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
-    if req.selector:
-        logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")
-
-    total_ms = int((time.monotonic() - t_start) * 1000)
-    logs.append(f"[DONE] Request resolved via Browser Solver in {total_ms}ms")
-    logger.info("✓ browser | %s -> %d", req.url, br.status_code)
-
-    return FetchResponse(
-        status_code=br.status_code,
-        headers=br.headers,
-        body=br.body,
-        cookies=br.cookies,
-        url=br.final_url,
-        protocol=None,
-        extracted=extracted,
-        logs=logs,
-        meta=RequestMeta(
-            via="browser",
-            request_type="browser",
-            preset=None,
-            cf_bypass_attempted=True,
-            cache_hit=False,
-            cookies_used=len(effective_cookies),
-            user_agent=br.user_agent or effective_ua,
-        ),
-    )
+    finally:
+        # Wake up any requests waiting on this domain's browser solve
+        if is_solver and wait_event:
+            async with _coalesce_lock:
+                if domain in _coalesce_events:
+                    _coalesce_events[domain].set()
+                    del _coalesce_events[domain]
