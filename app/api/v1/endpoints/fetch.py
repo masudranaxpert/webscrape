@@ -183,7 +183,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append("[COALESCE] Solver finished! Retrying fast-path HTTP engine...")
         
         new_cached = store.get(domain) or {}
-        new_ua = store.get_ua(domain)
+        new_ua = req.user_agent or store.get_ua(domain)
         retry_cookies = {**new_cached, **req.inject_cookies}
         retry_headers = {**req.headers}
         if new_ua and not any(k.lower() == "user-agent" for k in retry_headers):
