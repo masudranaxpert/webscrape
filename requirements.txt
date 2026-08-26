@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pydoll-python
+httpcloak
+selectolax
+python-dotenv

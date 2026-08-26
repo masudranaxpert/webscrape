@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anti API — High Performance Stealth Scraping Documentation</title>
+  <meta name="description" content="Official documentation and interactive playground for Anti — high speed stealth scraping API combining HTTP fingerprinting and headless browser engine.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/index.css">
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="container header-inner">
+      <a href="/" class="brand">
+        <div class="brand-icon">
+          <svg class="svg-icon" style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="brand-text">Anti API</div>
+        <span class="brand-badge">v1.0</span>
+      </a>
+
+      <div class="nav-links">
+        <a href="#playground" class="nav-link">Playground</a>
+        <a href="#endpoints" class="nav-link">Endpoints</a>
+        <a href="#guides" class="nav-link">Feature Guides</a>
+        <a href="#examples" class="nav-link">Examples</a>
+        <div class="status-badge" id="liveStatusBadge">
+          <span class="status-dot"></span>
+          <span id="statusText">Connecting...</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Hero Section -->
+    <section class="hero">
+      <h1 class="hero-title">High-Speed Stealth Scraping<br><span>Cloudflare Turnstile Auto-Bypass</span></h1>
+      <p class="hero-desc">
+        Dual-engine stealth pipeline: ultra-fast fingerprint-spoofed HTTP requests with automated fallback to persistent headless browser resolution.
+      </p>
+    </section>
+
+    <!-- Architecture Grid -->
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon-wrapper icon-cyan">
+          <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <h2 class="feature-title">Fast-Path HTTP Engine</h2>
+        <p class="feature-text">Wire-level browser fingerprinting. Spoofs TLS ClientHello, H2/H3 frames, and TCP stack for ~300ms speeds.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-wrapper icon-purple">
+          <svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h2 class="feature-title">Headless Browser Solver</h2>
+        <p class="feature-text">Persistent Chrome process with tab pooling. Automatically detects and clicks Cloudflare Turnstile challenges.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-wrapper icon-green">
+          <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+        </div>
+        <h2 class="feature-title">Domain Cookie Store</h2>
+        <p class="feature-text">In-memory LRU cookie jar. Harvests <code>cf_clearance</code> and session cookies to skip subsequent challenges completely.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-wrapper icon-amber">
+          <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </div>
+        <h2 class="feature-title">Dynamic Redirect Cache</h2>
+        <p class="feature-text">Learns post-challenge destination hosts and routes repeat requests directly to final URLs on the fast path.</p>
+      </div>
+    </div>
+
+    <!-- Playground / Interactive Tester -->
+    <section class="section-box" id="playground">
+      <div class="section-header">
+        <h2 class="section-title">
+          <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24"><polygon points="6 2 18 2 18 6 6 6 6 2"/><rect x="3" y="6" width="18" height="16" rx="2"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+          Live Interactive Playground
+        </h2>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">Test any protected URL in real time</span>
+      </div>
+
+      <form id="fetchForm" class="interactive-form">
+        <div class="input-wrapper">
+          <svg class="svg-icon input-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page" value="https://httpbin.org/get" required />
+        </div>
+        <button type="submit" id="submitBtn" class="btn-send">
+          <svg class="svg-icon" id="btnIcon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="btnLabel">Send Request</span>
+        </button>
+      </form>
+
+      <!-- Response Card -->
+      <div class="response-panel">
+        <div class="response-metrics">
+          <div class="metric-pill" id="statusPill">Status: Idle</div>
+          <div class="metric-pill" id="viaPill">Engine: --</div>
+          <div class="metric-pill" id="cachePill">Cache: --</div>
+          <div class="metric-pill" id="timePill">Latency: -- ms</div>
+        </div>
+
+        <div class="tab-nav">
+          <button type="button" class="tab-btn active" data-tab="jsonTab">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            JSON Response
+          </button>
+          <button type="button" class="tab-btn" data-tab="htmlTab">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            HTML Body Preview
+          </button>
+          <button type="button" class="tab-btn" data-tab="cookiesTab">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+            Cookies (<span id="cookieCount">0</span>)
+          </button>
+          <button type="button" class="tab-btn" data-tab="headersTab">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Headers
+          </button>
+          <button type="button" class="tab-btn" data-tab="logsTab">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Execution Logs (<span id="logsCount">0</span>)
+          </button>
+        </div>
+
+        <div class="tab-content">
+          <!-- JSON View -->
+          <div class="tab-pane active" id="jsonTab">
+            <pre><code id="jsonOutput">// Click "Send Request" to inspect the JSON output payload with colorful syntax highlighting...</code></pre>
+          </div>
+
+          <!-- HTML Preview -->
+          <div class="tab-pane" id="htmlTab">
+            <pre><code id="htmlOutput">&lt;!-- Body content preview will render here --&gt;</code></pre>
+          </div>
+
+          <!-- Cookies View -->
+          <div class="tab-pane" id="cookiesTab">
+            <div id="cookiesList" style="color:var(--text-secondary);">No cookies harvested yet.</div>
+          </div>
+
+          <!-- Headers View -->
+          <div class="tab-pane" id="headersTab">
+            <div id="headersList" style="color:var(--text-secondary);">No headers available.</div>
+          </div>
+
+          <!-- Execution Logs View -->
+          <div class="tab-pane" id="logsTab">
+            <div id="logsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Step-by-step pipeline execution logs will stream here...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Endpoints Reference -->
+    <section class="docs-section" id="endpoints">
+      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">API Reference</h2>
+
+      <!-- POST /fetch -->
+      <div class="endpoint-card">
+        <div class="endpoint-header">
+          <div class="endpoint-path">
+            <span class="badge-method method-post">POST</span>
+            <span>/fetch</span>
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Main stealth scraping pipeline</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">
+            Primary endpoint for fetching content. Automatically routes through the fast-path or executes Cloudflare bypass via the persistent browser pool.
+          </p>
+
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Request Parameters (JSON Body)</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Requirement</th>
+                  <th>Type</th>
+                  <th>Default</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="param-name">url</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">—</span></td>
+                  <td>Target URL to fetch (e.g. <code>https://example.com/protected-page</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">method</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">"GET"</span></td>
+                  <td>HTTP Method (<code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>DELETE</code>, <code>PATCH</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">headers</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">object</span></td>
+                  <td><span class="param-default">{}</span></td>
+                  <td>Custom request headers merged into preset browser header order.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">body</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Raw request payload for POST/PUT requests.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">user_agent</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null (auto)</span></td>
+                  <td>Custom User-Agent header string. When null, uses preset's authentic UA.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">preset</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">"chrome-latest-windows"</span></td>
+                  <td>Fingerprint profile (<code>chrome-latest-windows</code>, <code>chrome-latest-linux</code>, <code>firefox-latest</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">proxy</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Proxy URL (e.g. <code>http://proxy:8080</code> or <code>socks5://127.0.0.1:1080</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">force_browser</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Set <code>true</code> to skip fast-path and force headless browser execution.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">cf_wait</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">float</span></td>
+                  <td><span class="param-default">10.0</span></td>
+                  <td>Maximum wait seconds for Turnstile settlement in browser.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">cookie_ttl</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">integer</span></td>
+                  <td><span class="param-default">3600</span></td>
+                  <td>Cookie cache retention duration in seconds.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">inject_cookies</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">object</span></td>
+                  <td><span class="param-default">{}</span></td>
+                  <td>Custom cookies to inject into this request before navigation.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">selector</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>CSS selector to parse and extract from HTML on the server.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">selector_all</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Return all matching elements (<code>true</code>) or first match (<code>false</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">selector_attr</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">"text"</span></td>
+                  <td>Attribute to extract: <code>"text"</code>, <code>"html"</code>, <code>"href"</code>, <code>"src"</code>, etc.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-bottom: 8px; font-size: 0.95rem;">Response Schema</h4>
+          <div class="code-block-wrapper">
+            <div class="code-block-header">
+              <span>JSON Response</span>
+              <button class="btn-copy" onclick="copyCode(this)">
+                <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy
+              </button>
+            </div>
+            <pre><code>{
+  <span class="json-key">"status_code"</span>: <span class="json-number">200</span>,
+  <span class="json-key">"headers"</span>: { <span class="json-key">"content-type"</span>: <span class="json-string">"text/html; charset=UTF-8"</span> },
+  <span class="json-key">"body"</span>: <span class="json-string">"&lt;!DOCTYPE html&gt;..."</span>,
+  <span class="json-key">"cookies"</span>: { <span class="json-key">"cf_clearance"</span>: <span class="json-string">"..."</span>, <span class="json-key">"session"</span>: <span class="json-string">"..."</span> },
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/protected-page"</span>,
+  <span class="json-key">"protocol"</span>: <span class="json-string">"h2"</span>,
+  <span class="json-key">"extracted"</span>: <span class="json-null">null</span>,
+  <span class="json-key">"meta"</span>: {
+    <span class="json-key">"via"</span>: <span class="json-string">"http"</span>,                   <span class="json-comment">// "http" or "browser"</span>
+    <span class="json-key">"request_type"</span>: <span class="json-string">"http_request"</span>,    <span class="json-comment">// "http_request" or "browser"</span>
+    <span class="json-key">"preset"</span>: <span class="json-string">"chrome-latest-windows"</span>,
+    <span class="json-key">"cf_bypass_attempted"</span>: <span class="json-boolean">false</span>,
+    <span class="json-key">"cache_hit"</span>: <span class="json-boolean">true</span>,                <span class="json-comment">// True if served from cached session</span>
+    <span class="json-key">"cookies_used"</span>: <span class="json-number">2</span>
+  }
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /cookies -->
+      <div class="endpoint-card">
+        <div class="endpoint-header">
+          <div class="endpoint-path">
+            <span class="badge-method method-get">GET</span>
+            <span>/cookies</span>
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">List cached cookie jars</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Returns all currently active domain cookie jars along with remaining TTLs.</p>
+        </div>
+      </div>
+
+      <!-- DELETE /cookies/{domain} -->
+      <div class="endpoint-card">
+        <div class="endpoint-header">
+          <div class="endpoint-path">
+            <span class="badge-method method-delete">DELETE</span>
+            <span>/cookies/{domain}</span>
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Purge cached cookies</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Manually evicts stored cookies for a given root domain (e.g. <code>example.com</code>).</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dedicated Feature Guides -->
+    <section class="docs-section" id="guides">
+      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">Feature Guides</h2>
+
+      <div class="guide-box">
+        <div class="guide-header">
+          <div class="guide-title">
+            <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            Interactive Topic Documentation
+          </div>
+          <span style="font-size: 0.82rem; color: var(--text-muted);">Select a feature to explore full usage patterns</span>
+        </div>
+
+        <div class="guide-tabs-nav">
+          <button type="button" class="guide-tab-btn active" data-guide="guideSelectors">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            HTML Selectors & Extraction
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideCookies">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+            Cookie Injection & Auto-Jar
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideCloudflare">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Cloudflare & Browser Controls
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideNetworking">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1"/><polyline points="18 8 22 12 18 16"/></svg>
+            Fingerprints, User-Agent & Proxies
+          </button>
+        </div>
+
+        <div class="guide-tab-content">
+          <!-- Selectors Guide -->
+          <div class="guide-pane active" id="guideSelectors">
+            <p>
+              The API includes a high-performance C-based HTML parser (<code>selectolax Lexbor</code>) on the backend. Instead of downloading and parsing megabytes of HTML in your client code, you can pass CSS selectors directly to receive cleanly extracted text or attributes.
+            </p>
+            <ul>
+              <li><strong><code>selector</code></strong>: Any standard CSS selector (e.g. <code>"h1"</code>, <code>"table.torrent-table > tbody > tr"</code>, <code>"a.download-btn"</code>).</li>
+              <li><strong><code>selector_all</code></strong>: Set to <code>true</code> to return an array of all matches; set <code>false</code> to return the first matching element.</li>
+              <li><strong><code>selector_attr</code></strong>: Choose <code>"text"</code> (default, trimmed innerText), <code>"html"</code> (outerHTML), or any HTML attribute name like <code>"href"</code>, <code>"src"</code>, <code>"data-id"</code>.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Extract all download links with CSS selectors</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/items"</span>,
+  <span class="json-key">"selector"</span>: <span class="json-string">"a.download-btn"</span>,
+  <span class="json-key">"selector_all"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"selector_attr"</span>: <span class="json-string">"href"</span>
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Cookies Guide -->
+          <div class="guide-pane" id="guideCookies">
+            <p>
+              The service includes a built-in <strong>Domain-Aware LRU In-Memory Cookie Store</strong>. When a Cloudflare Turnstile challenge is solved by the browser engine, all cookies (including <code>cf_clearance</code> and session tokens) are stored automatically. Subsequent requests for the same domain reuse these cookies to hit the fast-path (300ms) without opening a browser.
+            </p>
+            <ul>
+              <li><strong><code>inject_cookies</code></strong>: Inject custom session cookies (e.g. logged-in user tokens) into both the HTTP engine and the browser context before navigation.</li>
+              <li><strong><code>cookie_ttl</code></strong>: Controls how many seconds harvested cookies stay valid in memory (default <code>3600</code> = 1 hour).</li>
+              <li><strong>LRU Eviction</strong>: Stores up to 10 distinct domains concurrently in memory. Least recently used domain entries are gracefully evicted when capacity is reached.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Passing custom authenticated cookies</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/account-dashboard"</span>,
+  <span class="json-key">"inject_cookies"</span>: {
+    <span class="json-key">"session_auth"</span>: <span class="json-string">"d7cacaacbab36dcb309df17425793931"</span>,
+    <span class="json-key">"user_id"</span>: <span class="json-string">"48291"</span>
+  }
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Cloudflare & Browser Guide -->
+          <div class="guide-pane" id="guideCloudflare">
+            <p>
+              The system manages a <strong>persistent single Chromium process</strong> started once at application boot. Incoming requests acquire a worker tab through a semaphore pool (configurable via <code>MAX_TABS</code> in <code>.env</code>) and automatically clean up tabs and isolated browser contexts upon completion.
+            </p>
+            <ul>
+              <li><strong><code>force_browser</code></strong>: Set to <code>true</code> to skip the HTTP fast-path and drive Chrome directly. Use this for complex Single Page Apps (SPA) that require client-side JavaScript rendering.</li>
+              <li><strong><code>cf_wait</code></strong>: Maximum duration in seconds to wait for Cloudflare Turnstile to solve and redirect (default <code>10.0</code>s).</li>
+              <li><strong>Dynamic Redirect Cache</strong>: When an origin domain redirects to a separate domain post-challenge (e.g. <code>.com</code> → <code>.net</code>), the API caches the destination so subsequent requests hit the final URL directly on the fast-path.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Forcing browser with custom challenge timeout</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/dynamic-spa"</span>,
+  <span class="json-key">"force_browser"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"cf_wait"</span>: <span class="json-number">15.0</span>
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Networking Guide -->
+          <div class="guide-pane" id="guideNetworking">
+            <p>
+              Fine-tune the wire-level network behavior, fingerprint profiles, proxy routing, and User-Agent headers.
+            </p>
+            <ul>
+              <li><strong><code>user_agent</code></strong>: Pass a custom User-Agent string to override the preset's default. If omitted, the authentic preset User-Agent is sent.</li>
+              <li><strong><code>preset</code></strong>: Select from bundled browser fingerprint profiles:
+                <code>"chrome-latest-windows"</code>, <code>"chrome-latest-linux"</code>, <code>"chrome-latest-macos"</code>, <code>"firefox-latest"</code>, <code>"safari-latest"</code>.
+              </li>
+              <li><strong><code>proxy</code></strong>: Route requests through HTTP, HTTPS, or SOCKS5 proxies. Browser tabs run in dedicated, isolated browser contexts to prevent proxy leakage.</li>
+              <li><strong><code>http_version</code></strong>: Force protocol version (<code>"h1"</code>, <code>"h2"</code>, <code>"h3"</code>) or leave as <code>null</code> for auto-negotiation via ALPN.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Custom User-Agent and SOCKS5 Proxy</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/api/data"</span>,
+  <span class="json-key">"user_agent"</span>: <span class="json-string">"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-string">"socks5://127.0.0.1:1080"</span>,
+  <span class="json-key">"preset"</span>: <span class="json-string">"chrome-latest-windows"</span>,
+  <span class="json-key">"timeout"</span>: <span class="json-number">45</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Code Examples -->
+    <section class="docs-section" id="examples">
+      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">Usage Examples</h2>
+
+      <!-- Python Example -->
+      <div class="code-block-wrapper" style="margin-bottom: 24px;">
+        <div class="code-block-header">
+          <span>Python (httpx / requests)</span>
+          <button class="btn-copy" onclick="copyCode(this)">
+            <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code><span class="hl-keyword">import</span> httpx
+
+<span class="hl-comment"># Send stealth request</span>
+response = httpx.<span class="hl-fn">post</span>(
+    <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
+    json={
+        <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/protected-page"</span>,
+        <span class="json-key">"selector"</span>: <span class="hl-string">"title"</span>,
+        <span class="json-key">"cf_wait"</span>: <span class="hl-number">10.0</span>
+    },
+    timeout=<span class="hl-number">30.0</span>
+)
+
+data = response.<span class="hl-fn">json</span>()
+<span class="hl-fn">print</span>(<span class="hl-string">"Status Code:"</span>, data[<span class="hl-string">"status_code"</span>])
+<span class="hl-fn">print</span>(<span class="hl-string">"Engine Used:"</span>, data[<span class="hl-string">"meta"</span>][<span class="hl-string">"via"</span>])
+<span class="hl-fn">print</span>(<span class="hl-string">"Cache Hit:  "</span>, data[<span class="hl-string">"meta"</span>][<span class="hl-string">"cache_hit"</span>])
+<span class="hl-fn">print</span>(<span class="hl-string">"Extracted:  "</span>, data[<span class="hl-string">"extracted"</span>])</code></pre>
+      </div>
+
+      <!-- cURL Example -->
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>cURL CLI</span>
+          <button class="btn-copy" onclick="copyCode(this)">
+            <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/fetch \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{
+    "url": "https://example.com/protected-page",
+    "preset": "chrome-latest-windows"
+  }'</span></code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>Anti API — High Performance Stealth Scraping Service.</p>
+    </div>
+  </footer>
+
+  <script src="/static/index.js"></script>
+</body>
+</html>

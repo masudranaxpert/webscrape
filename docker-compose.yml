@@ -1,0 +1,15 @@
+services:
+  anti:
+    build: .
+    container_name: anti
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      BROWSER_HEADLESS: "true"
+    # Chrome requires /dev/shm to be large enough (default 64MB is too small)
+    shm_size: "512mb"
+    cap_add:
+      - SYS_ADMIN
