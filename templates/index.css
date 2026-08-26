@@ -478,6 +478,7 @@ header {
   overflow-x: hidden;
   font-family: var(--font-mono);
   font-size: 0.88rem;
+  color: #e4e4e7;
   scrollbar-color: #3f3f46 #18181b;
 }
 
@@ -491,6 +492,7 @@ header {
 
 .tab-pane {
   display: none;
+  color: #e4e4e7;
 }
 
 .tab-pane.active {
