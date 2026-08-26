@@ -206,14 +206,19 @@ fetchForm.addEventListener('submit', async (e) => {
     if (cookieCount) cookieCount.textContent = cookieKeys.length;
 
     if (cookieKeys.length > 0) {
-      let html = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:var(--font-mono);font-size:0.84rem;">' +
-                 '<thead><tr><th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;width:220px;">Cookie Name</th>' +
-                 '<th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;">Value</th></tr></thead><tbody>';
+      let html = '<div style="display:flex;flex-direction:column;gap:12px;">';
       for (const k of cookieKeys) {
-        html += `<tr><td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);color:#38bdf8;font-weight:600;vertical-align:top;word-break:break-all;" class="cookie-name">${k}</td>` +
-                `<td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:top;"><span style="color:#e2e8f0;background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;font-size:0.8rem;display:block;word-break:break-all;" class="item-value">${cookies[k]}</span></td></tr>`;
+        html += '<div style="background:#202024;border:1px solid #2e2e34;border-radius:8px;padding:12px 16px;">' +
+                '<div style="color:#38bdf8;font-weight:700;font-size:0.86rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+                '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;"></span>' +
+                k +
+                '</div>' +
+                '<div style="font-family:var(--font-mono);font-size:0.82rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.35);padding:8px 12px;border-radius:6px;line-height:1.6;user-select:all;border:1px solid rgba(255,255,255,0.05);">' +
+                cookies[k] +
+                '</div>' +
+                '</div>';
       }
-      html += '</tbody></table>';
+      html += '</div>';
       cookiesList.innerHTML = html;
     } else {
       cookiesList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No cookies present in response.</div>';
@@ -223,14 +228,16 @@ fetchForm.addEventListener('submit', async (e) => {
     const headers = data.headers || {};
     const headerKeys = Object.keys(headers);
     if (headerKeys.length > 0) {
-      let html = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:var(--font-mono);font-size:0.84rem;">' +
-                 '<thead><tr><th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;width:220px;">Header Name</th>' +
-                 '<th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;">Value</th></tr></thead><tbody>';
+      let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
       for (const k of headerKeys) {
-        html += `<tr><td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);color:#a78bfa;font-weight:600;vertical-align:top;word-break:break-all;" class="header-name">${k}</td>` +
-                `<td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:top;"><span style="color:#e2e8f0;background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;font-size:0.8rem;display:block;word-break:break-all;" class="item-value">${headers[k]}</span></td></tr>`;
+        html += '<div style="background:#202024;border:1px solid #2e2e34;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:4px;">' +
+                '<div style="color:#a78bfa;font-weight:700;font-size:0.84rem;">' + k + '</div>' +
+                '<div style="font-family:var(--font-mono);font-size:0.82rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.25);padding:6px 10px;border-radius:4px;">' +
+                headers[k] +
+                '</div>' +
+                '</div>';
       }
-      html += '</tbody></table>';
+      html += '</div>';
       headersList.innerHTML = html;
     } else {
       headersList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No headers available.</div>';
