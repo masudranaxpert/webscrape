@@ -49,7 +49,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
     btn.classList.add('active');
     const target = document.getElementById(btn.getAttribute('data-tab'));
-    if (target) target.classList.add('active');
+    if (target) {
+      target.classList.add('active');
+      const container = target.closest('.tab-content');
+      if (container) container.scrollTop = 0;
+    }
   });
 });
 
@@ -118,6 +122,9 @@ fetchForm.addEventListener('submit', async (e) => {
   cachePill.textContent = 'Cache: --';
   timePill.className = 'metric-pill';
   timePill.textContent = 'Latency: --';
+
+  const responseTabContent = document.querySelector('.response-panel .tab-content');
+  if (responseTabContent) responseTabContent.scrollTop = 0;
 
   if (logsCount) logsCount.textContent = '...';
   if (logsList) logsList.innerHTML = '<div style="color:#fb923c">// Executing stealth dual-engine pipeline...</div>';
