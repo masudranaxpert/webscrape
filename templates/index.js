@@ -196,31 +196,31 @@ fetchForm.addEventListener('submit', async (e) => {
     // Format Cookies Tab
     const cookies = data.cookies || {};
     const cookieKeys = Object.keys(cookies);
-    cookieCount.textContent = cookieKeys.length;
+    if (cookieCount) cookieCount.textContent = cookieKeys.length;
 
     if (cookieKeys.length > 0) {
-      let html = '<table style="width:100%"><thead><tr><th>Cookie Name</th><th>Value</th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>Cookie Name</th><th>Value</th></tr></thead><tbody>';
       for (const k of cookieKeys) {
-        html += `<tr><td style="color:#38bdf8;font-weight:600">${k}</td><td style="font-size:0.82rem;word-break:break-all;color:#e2e8f0">${cookies[k]}</td></tr>`;
+        html += `<tr><td class="cookie-name">${k}</td><td><span class="item-value">${cookies[k]}</span></td></tr>`;
       }
       html += '</tbody></table>';
       cookiesList.innerHTML = html;
     } else {
-      cookiesList.innerHTML = '<span style="color:#71717a">No cookies present in response.</span>';
+      cookiesList.innerHTML = '<div class="empty-tab-msg">No cookies present in response.</div>';
     }
 
     // Format Headers Tab
     const headers = data.headers || {};
     const headerKeys = Object.keys(headers);
     if (headerKeys.length > 0) {
-      let html = '<table style="width:100%"><thead><tr><th>Header Name</th><th>Value</th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>Header Name</th><th>Value</th></tr></thead><tbody>';
       for (const k of headerKeys) {
-        html += `<tr><td style="color:#a78bfa;font-weight:600">${k}</td><td style="font-size:0.82rem;word-break:break-all;color:#e2e8f0">${headers[k]}</td></tr>`;
+        html += `<tr><td class="header-name">${k}</td><td><span class="item-value">${headers[k]}</span></td></tr>`;
       }
       html += '</tbody></table>';
       headersList.innerHTML = html;
     } else {
-      headersList.innerHTML = '<span style="color:#71717a">No headers available.</span>';
+      headersList.innerHTML = '<div class="empty-tab-msg">No headers available.</div>';
     }
 
     // Format Execution Logs Tab

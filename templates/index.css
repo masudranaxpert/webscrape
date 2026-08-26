@@ -497,6 +497,74 @@ header {
   display: block;
 }
 
+/* Response Console Tables (Cookies & Headers) */
+.tab-content table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+}
+
+.tab-content th {
+  text-align: left;
+  padding: 10px 14px;
+  background: #202024;
+  color: #a1a1aa;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #2e2e34;
+}
+
+.tab-content th:first-child {
+  width: 220px;
+  border-top-left-radius: var(--radius-sm);
+}
+
+.tab-content th:last-child {
+  border-top-right-radius: var(--radius-sm);
+}
+
+.tab-content td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.tab-content tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tab-content .cookie-name {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.tab-content .header-name {
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+.tab-content .item-value {
+  color: #e2e8f0;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  display: block;
+}
+
+.empty-tab-msg {
+  color: #71717a;
+  padding: 20px 0;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+}
+
 /* Syntax Highlighting for JSON in Console */
 .json-key { color: #38bdf8; font-weight: 600; }
 .json-string { color: #34d399; }
