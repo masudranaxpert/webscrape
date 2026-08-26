@@ -20,6 +20,11 @@ router = APIRouter()
 _MAX_REDIRECTS = 500
 _redirect_cache: OrderedDict[str, str] = OrderedDict()
 
+# Global primitives for Request Coalescing (Thundering Herd protection)
+import asyncio
+_coalesce_events: dict[str, asyncio.Event] = {}
+_coalesce_lock: asyncio.Lock = asyncio.Lock()
+
 
 def _cache_redirect(domain: str, url: str) -> None:
     """Store redirect destination with LRU eviction."""
@@ -159,6 +164,78 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append("[FORCE] force_browser=true set in request -> Bypassing fast-path, routing directly to Browser Solver")
 
     # 2. Slow path: Cloudflare bypass via browser pool
+    is_solver = True
+    wait_event = None
+    
+    # Do not coalesce if force_browser=True
+    if not req.force_browser:
+        async with _coalesce_lock:
+            if domain in _coalesce_events:
+                is_solver = False
+                wait_event = _coalesce_events[domain]
+            else:
+                wait_event = asyncio.Event()
+                _coalesce_events[domain] = wait_event
+
+    if not is_solver and wait_event:
+        logs.append(f"[COALESCE] Waiting for concurrent browser solver to finish for '{domain}'...")
+        await wait_event.wait()
+        logs.append("[COALESCE] Solver finished! Retrying fast-path HTTP engine...")
+        
+        new_cached = store.get(domain) or {}
+        new_ua = store.get_ua(domain)
+        retry_cookies = {**new_cached, **req.inject_cookies}
+        retry_headers = {**req.headers}
+        if new_ua and not any(k.lower() == "user-agent" for k in retry_headers):
+            retry_headers["user-agent"] = new_ua
+            
+        retry_res = await httpcloak_fetch(
+            url=req.url,
+            method=req.method,
+            headers=retry_headers,
+            body=req.body,
+            cookies=retry_cookies,
+            preset=req.preset,
+            proxy=req.proxy,
+            http_version=req.http_version,
+            timeout=req.timeout,
+        )
+        if not retry_res.cf_wall:
+            logs.append(f"[HTTP-RETRY] Success! Received HTTP {retry_res.status_code} in {retry_res.elapsed_ms}ms")
+            extracted = _extract(retry_res.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
+            return FetchResponse(
+                status_code=retry_res.status_code,
+                headers=retry_res.headers,
+                body=retry_res.body,
+                cookies=retry_res.cookies or retry_cookies,
+                url=retry_res.final_url,
+                protocol=retry_res.protocol,
+                extracted=extracted,
+                logs=logs,
+                meta=RequestMeta(
+                    via="http",
+                    request_type="http_request_coalesced",
+                    preset=req.preset,
+                    cf_bypass_attempted=False,
+                    cache_hit=True,
+                    cookies_used=len(retry_cookies),
+                    user_agent=retry_headers.get("user-agent", ""),
+                ),
+            )
+        else:
+            logs.append(f"[HTTP-RETRY] Still blocked (HTTP {retry_res.status_code}). Failing coalesced request.")
+            return FetchResponse(
+                 status_code=retry_res.status_code,
+                 headers={},
+                 body="Cloudflare bypass failed on coalesced retry",
+                 cookies={},
+                 url=req.url,
+                 protocol="h2",
+                 extracted=None,
+                 logs=logs,
+                 meta=RequestMeta(via="http", request_type="http_request_coalesced", preset=req.preset, cf_bypass_attempted=False, cache_hit=False, cookies_used=0, user_agent="")
+            )
+
     logs.append(f"[BROWSER] Requesting worker tab from persistent Chromium pool (Timeout: {req.cf_wait}s)")
     try:
         br = await pool.solve_and_fetch(
@@ -169,6 +246,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             cookies=effective_cookies,
         )
     except Exception as exc:
+        if is_solver and wait_event:
+            async with _coalesce_lock:
+                if domain in _coalesce_events:
+                    _coalesce_events[domain].set()
+                    del _coalesce_events[domain]
         total_ms = int((time.monotonic() - t_start) * 1000)
         logs.append(f"[ERROR] Browser solver execution error: {exc} ({total_ms}ms)")
         logs.append("[FAIL] Pipeline failed to resolve request")
@@ -201,6 +283,13 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         if br.final_url and br.final_url != req.url:
             _cache_redirect(domain, br.final_url)
             logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
+            
+    # Wake up any requests waiting on this domain's browser solve
+    if is_solver and wait_event:
+        async with _coalesce_lock:
+            if domain in _coalesce_events:
+                _coalesce_events[domain].set()
+                del _coalesce_events[domain]
 
 
     extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
