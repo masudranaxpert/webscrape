@@ -39,6 +39,11 @@ class RequestMeta(BaseModel):
         description="Number of session cookies attached to the outbound request.",
         examples=[2],
     )
+    user_agent: str | None = Field(
+        default=None,
+        description="Effective User-Agent header string used for the request.",
+        examples=["Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/134.0.0.0 Safari/537.36"],
+    )
 
 
 class FetchRequest(BaseModel):

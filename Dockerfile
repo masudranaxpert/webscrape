@@ -1,10 +1,15 @@
-FROM python:3.13-slim
+FROM ubuntu:24.04
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    CLOAKBROWSER_AUTO_UPDATE=false
+ENV DEBIAN_FRONTEND=noninteractive \
+    CLOAKBROWSER_AUTO_UPDATE=false \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-venv \
     wget \
     curl \
     ca-certificates \
@@ -27,24 +32,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
-    libasound2 \
+    libasound2t64 \
     libatspi2.0-0 \
     libx11-6 \
     libxcb1 \
     libxext6 \
     libgtk-3-0 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy application files
+COPY . .
 
-# Pre-download cloakbrowser chromium
+RUN chmod +x /app/docker-entrypoint.sh && \
+    (useradd -m -s /bin/bash ubuntu || true) && \
+    chown -R ubuntu:ubuntu /app
+
+USER ubuntu
+
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Pre-download cloakbrowser chromium binary into ubuntu user cache
 RUN python3 -c "import cloakbrowser; print(cloakbrowser.ensure_binary())"
 
-COPY . .
+USER root
+# Symlink cloakbrowser binary to standard system paths for Pydoll validation
+RUN CHROME_PATH=$(/app/venv/bin/python3 -c "import cloakbrowser; print(cloakbrowser.ensure_binary())") && \
+    ln -sf "$CHROME_PATH" /usr/bin/google-chrome && \
+    ln -sf "$CHROME_PATH" /usr/bin/google-chrome-stable && \
+    chmod 755 "$CHROME_PATH" && \
+    chmod -R 755 /home/ubuntu/.cloakbrowser
+
+USER ubuntu
 
 EXPOSE 8000
 
-CMD ["xvfb-run", "-a", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

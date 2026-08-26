@@ -122,10 +122,15 @@ async def httpcloak_fetch(
             for name, value in cookies.items():
                 session.set_cookie(name=name, value=value, domain=domain)
 
+        req_headers = {**headers} if headers else {}
+        ua_in_req = next((v for k, v in req_headers.items() if k.lower() == "user-agent"), None)
+
         if DEBUG:
             logger.debug(
-                "httpcloak -> %s %s | preset=%s | version=%s | cookies=%d | proxy=%s",
-                method.upper(), url, preset, clean_version or "auto",
+                "httpcloak -> %s %s | preset=%s | ua=%s | version=%s | cookies=%d | proxy=%s",
+                method.upper(), url, preset,
+                (ua_in_req[:40] + "...") if ua_in_req else "preset-default",
+                clean_version or "auto",
                 len(cookies or {}), clean_proxy or "none",
             )
 
@@ -137,7 +142,7 @@ async def httpcloak_fetch(
                 session.request_async(
                     method=method.upper(),
                     url=url,
-                    headers=headers or {},
+                    headers=req_headers,
                     data=payload,
                     cookies=cookies or {},
                 ),

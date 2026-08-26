@@ -66,6 +66,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     domain = store.domain_of(req.url)
     cached_cookies = store.get(domain) or {}
+    cached_ua = store.get_ua(domain)
     effective_cookies = {**cached_cookies, **req.inject_cookies}
     cache_hit = bool(cached_cookies)
 
@@ -79,11 +80,15 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     if req.inject_cookies:
         logs.append(f"[INJECT] Injected {len(req.inject_cookies)} custom cookies into request")
 
-    # Merge custom User-Agent if explicitly provided
+    # Merge custom or domain-cached browser session User-Agent
     effective_headers = {**req.headers}
-    if req.user_agent and not any(k.lower() == "user-agent" for k in effective_headers):
-        effective_headers["user-agent"] = req.user_agent
-        logs.append(f"[HEADERS] Applied custom User-Agent override: {req.user_agent[:45]}...")
+    effective_ua = req.user_agent or cached_ua
+    if effective_ua and not any(k.lower() == "user-agent" for k in effective_headers):
+        effective_headers["user-agent"] = effective_ua
+        if req.user_agent:
+            logs.append(f"[HEADERS] Applied custom User-Agent override: {effective_ua[:45]}...")
+        elif cached_ua:
+            logs.append(f"[CACHE] Applied cached session User-Agent: {effective_ua[:45]}...")
 
     # 1. Fast path: Direct fingerprint HTTP request
     if not req.force_browser:
@@ -107,7 +112,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         if not result.cf_wall:
             logs.append(f"[HTTP-SUCCESS] Received HTTP {result.status_code} ({result.protocol or 'h2'}) in {result.elapsed_ms}ms (No challenge wall)")
             if result.cookies:
-                store.set(domain, {**effective_cookies, **result.cookies}, ttl=req.cookie_ttl)
+                store.set(domain, {**effective_cookies, **result.cookies}, ua=effective_ua, ttl=req.cookie_ttl)
                 logs.append(f"[CACHE] Stored {len(result.cookies)} session cookies for '{domain}' (TTL: {req.cookie_ttl}s)")
 
             extracted = _extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
@@ -134,6 +139,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                     cf_bypass_attempted=False,
                     cache_hit=cache_hit,
                     cookies_used=len(effective_cookies),
+                    user_agent=effective_ua,
                 ),
             )
 
@@ -188,10 +194,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     logs.append(f"[SOLVER] Browser tab finished in {br.elapsed_ms}ms -> Status: {br.status_code} | Cookies harvested: {len(br.cookies)}")
 
-    # Cache harvested cookies and resolved redirect target
+    # Cache harvested cookies, session User-Agent, and resolved redirect target
     if br.cookies:
-        store.set(domain, br.cookies, ttl=req.cookie_ttl)
-        logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) for '{domain}'")
+        store.set(domain, br.cookies, ua=br.user_agent, ttl=req.cookie_ttl)
+        logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) and User-Agent for '{domain}'")
         if br.final_url and br.final_url != req.url:
             _cache_redirect(domain, br.final_url)
             logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
@@ -221,5 +227,6 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             cf_bypass_attempted=True,
             cache_hit=False,
             cookies_used=len(effective_cookies),
+            user_agent=br.user_agent or effective_ua,
         ),
     )

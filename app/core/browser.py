@@ -43,14 +43,6 @@ _PAGE_LOAD_MAP = {
     "loading": PageLoadState.LOADING,
 }
 
-_DEFAULT_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/151.0.0.0 Safari/537.36"
-)
-
-
-
 @dataclasses.dataclass
 class BrowserResult:
     status_code: int
@@ -92,7 +84,6 @@ def _build_options(headless: bool = True) -> ChromiumOptions:
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--enable-blink-features=FakeShadowRoot")
     options.add_argument("--lang=en-US,en")
-    options.add_argument(f"--user-agent={_DEFAULT_UA}")
 
     options.start_timeout = 30
     options.block_notifications = True
@@ -100,8 +91,32 @@ def _build_options(headless: bool = True) -> ChromiumOptions:
     options.webrtc_leak_protection = True
     options.password_manager_enabled = False
     options.page_load_state = PageLoadState.COMPLETE
-
     return options
+
+def _extract_js_value(res: Any) -> Any:
+    if res is None:
+        return None
+    if isinstance(res, (str, int, float, bool)):
+        return res
+    if isinstance(res, dict):
+        if "value" in res:
+            return res["value"]
+        inner = res.get("result")
+        if isinstance(inner, dict):
+            if "value" in inner:
+                return inner["value"]
+            deep = inner.get("result")
+            if isinstance(deep, dict):
+                return deep.get("value") or deep.get("description")
+            return inner.get("description")
+        if "userAgent" in res:
+            return res["userAgent"]
+    for attr in ("value", "description"):
+        if hasattr(res, attr):
+            val = getattr(res, attr)
+            if val is not None and not isinstance(val, (dict, list)):
+                return val
+    return None
 
 
 class BrowserPool:
@@ -114,6 +129,7 @@ class BrowserPool:
         self._headless = headless
         self._chrome: Chrome | None = None
         self._sem: asyncio.Semaphore | None = None
+        self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
         """Launch background Chrome process during server startup."""
@@ -122,6 +138,14 @@ class BrowserPool:
         await self._chrome.__aenter__()
         await self._chrome.start()
         self._sem = asyncio.Semaphore(self._max_tabs)
+
+        with contextlib.suppress(Exception):
+            v = await self._chrome.get_version()
+            detected_ua = _extract_js_value(v) or (v.get("userAgent") if isinstance(v, dict) else None)
+            if detected_ua and isinstance(detected_ua, str):
+                self._default_browser_ua = detected_ua
+                logger.info("Captured native browser User-Agent: %s", self._default_browser_ua)
+
         logger.info("BrowserPool initialized | max_tabs=%d | headless=%s", self._max_tabs, self._headless)
 
     async def stop(self) -> None:
@@ -256,6 +280,16 @@ class BrowserPool:
             if "just a moment" in body.lower() or "<title>just a moment" in body.lower():
                 nav_status["status"] = 403
 
+            # Capture actual browser runtime User-Agent for downstream session reuse
+            user_agent: str | None = self._default_browser_ua
+            with contextlib.suppress(Exception):
+                ua_res = await tab.execute_script("return navigator.userAgent")
+                extracted_ua = _extract_js_value(ua_res)
+                if extracted_ua and isinstance(extracted_ua, str) and len(extracted_ua) > 10:
+                    user_agent = extracted_ua
+                    if not self._default_browser_ua:
+                        self._default_browser_ua = extracted_ua
+
         finally:
             # Explicitly remove network callback before closing to prevent reference leak
             if _cb_id is not None:
@@ -278,6 +312,7 @@ class BrowserPool:
             cookies=harvested,
             final_url=final_url,
             elapsed_ms=elapsed_ms,
+            user_agent=user_agent,
         )
 
 
