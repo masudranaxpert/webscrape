@@ -21,6 +21,9 @@ BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "true").lower() not in ("
 VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() in ("true", "1", "yes")
 
 
+# Suppress background auto-update checks from cloakbrowser
+os.environ.setdefault("CLOAKBROWSER_AUTO_UPDATE", "false")
+
 def configure_logging() -> None:
     """Initialize application-wide logging configuration."""
     level = logging.DEBUG if DEBUG else logging.INFO
@@ -37,6 +40,6 @@ def configure_logging() -> None:
         force=True,
     )
 
-    # Suppress verbose external loggers
-    for noisy in ("websockets", "asyncio", "aiohttp", "urllib3", "httpcore", "playwright", "httpx"):
+    # Suppress verbose external networking loggers
+    for noisy in ("websockets", "asyncio", "aiohttp", "urllib3", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
