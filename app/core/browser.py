@@ -85,6 +85,7 @@ class BrowserPool:
         self._headless = headless
         self._sem: asyncio.Semaphore | None = None
         self._launch_lock: asyncio.Lock | None = None
+        self._browser: Any | None = None
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
@@ -105,6 +106,10 @@ class BrowserPool:
 
     async def stop(self) -> None:
         """Clean up browser pool resources."""
+        if self._browser:
+            with contextlib.suppress(Exception):
+                await self._browser.close()
+            self._browser = None
         logger.info("BrowserPool stopped")
 
     async def solve_and_fetch(
@@ -189,11 +194,8 @@ class BrowserPool:
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
                 "--lang=en-US,en",
-            ],
-            "locale": "en-US",
+            ]
         }
-        if proxy_cfg:
-            launch_kwargs["proxy"] = proxy_cfg
 
         context = None
         harvested: dict[str, str] = {}
@@ -203,11 +205,18 @@ class BrowserPool:
         user_agent: str | None = self._default_browser_ua
 
         try:
-            # Serialize context initialization to avoid browserforge fingerprint race conditions
             if self._launch_lock is None:
                 self._launch_lock = asyncio.Lock()
+            
             async with self._launch_lock:
-                context = await cb.launch_context_async(**launch_kwargs)
+                if self._browser is None:
+                    self._browser = await cb.launch_async(**launch_kwargs)
+
+            context_kwargs: dict[str, Any] = {"locale": "en-US"}
+            if proxy_cfg:
+                context_kwargs["proxy"] = proxy_cfg
+                
+            context = await self._browser.new_context(**context_kwargs)
 
             page = context.pages[0] if context.pages else await context.new_page()
             timeout_ms = max(int(cf_wait * 1000), 30000)
@@ -282,10 +291,7 @@ class BrowserPool:
         finally:
             if context is not None:
                 with contextlib.suppress(Exception):
-                    browser = context.browser
                     await asyncio.wait_for(asyncio.shield(context.close()), timeout=5.0)
-                    if browser:
-                        await asyncio.wait_for(asyncio.shield(browser.close()), timeout=5.0)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "cloakbrowser: done -> %s | status=%d | cookies=%d | elapsed=%dms",
