@@ -107,6 +107,7 @@ async def httpcloak_fetch(
         "tcp_df": True,
         "ech_config_domain": "cloudflare-ech.com",
         "allow_redirects": True,
+        "max_redirects": 10,
     }
     if clean_proxy:
         session_kwargs["proxy"] = clean_proxy
@@ -145,6 +146,7 @@ async def httpcloak_fetch(
                     headers=req_headers,
                     data=payload,
                     cookies=cookies or {},
+                    allow_redirects=True,
                 ),
                 timeout=float(timeout),
             )

@@ -199,28 +199,34 @@ fetchForm.addEventListener('submit', async (e) => {
     if (cookieCount) cookieCount.textContent = cookieKeys.length;
 
     if (cookieKeys.length > 0) {
-      let html = '<table><thead><tr><th>Cookie Name</th><th>Value</th></tr></thead><tbody>';
+      let html = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:var(--font-mono);font-size:0.84rem;">' +
+                 '<thead><tr><th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;width:220px;">Cookie Name</th>' +
+                 '<th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;">Value</th></tr></thead><tbody>';
       for (const k of cookieKeys) {
-        html += `<tr><td class="cookie-name">${k}</td><td><span class="item-value">${cookies[k]}</span></td></tr>`;
+        html += `<tr><td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);color:#38bdf8;font-weight:600;vertical-align:top;word-break:break-all;" class="cookie-name">${k}</td>` +
+                `<td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:top;"><span style="color:#e2e8f0;background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;font-size:0.8rem;display:block;word-break:break-all;" class="item-value">${cookies[k]}</span></td></tr>`;
       }
       html += '</tbody></table>';
       cookiesList.innerHTML = html;
     } else {
-      cookiesList.innerHTML = '<div class="empty-tab-msg">No cookies present in response.</div>';
+      cookiesList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No cookies present in response.</div>';
     }
 
     // Format Headers Tab
     const headers = data.headers || {};
     const headerKeys = Object.keys(headers);
     if (headerKeys.length > 0) {
-      let html = '<table><thead><tr><th>Header Name</th><th>Value</th></tr></thead><tbody>';
+      let html = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:var(--font-mono);font-size:0.84rem;">' +
+                 '<thead><tr><th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;width:220px;">Header Name</th>' +
+                 '<th style="text-align:left;padding:10px 14px;background:#202024;color:#a1a1aa;font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #2e2e34;">Value</th></tr></thead><tbody>';
       for (const k of headerKeys) {
-        html += `<tr><td class="header-name">${k}</td><td><span class="item-value">${headers[k]}</span></td></tr>`;
+        html += `<tr><td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);color:#a78bfa;font-weight:600;vertical-align:top;word-break:break-all;" class="header-name">${k}</td>` +
+                `<td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:top;"><span style="color:#e2e8f0;background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;font-size:0.8rem;display:block;word-break:break-all;" class="item-value">${headers[k]}</span></td></tr>`;
       }
       html += '</tbody></table>';
       headersList.innerHTML = html;
     } else {
-      headersList.innerHTML = '<div class="empty-tab-msg">No headers available.</div>';
+      headersList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No headers available.</div>';
     }
 
     // Format Execution Logs Tab

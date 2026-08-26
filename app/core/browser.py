@@ -84,11 +84,13 @@ class BrowserPool:
         self._max_tabs = max_tabs
         self._headless = headless
         self._sem: asyncio.Semaphore | None = None
+        self._launch_lock: asyncio.Lock | None = None
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
         """Pre-warm browser environment and initialize concurrency semaphore."""
         self._sem = asyncio.Semaphore(self._max_tabs)
+        self._launch_lock = asyncio.Lock()
         try:
             bin_path = cb.ensure_binary()
             logger.info("Using cloakbrowser binary: %s", bin_path)
@@ -116,6 +118,8 @@ class BrowserPool:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
         if self._sem is None:
             self._sem = asyncio.Semaphore(self._max_tabs)
+        if self._launch_lock is None:
+            self._launch_lock = asyncio.Lock()
 
         async with self._sem:
             return await self._run_context(url, cf_wait, proxy, page_load_state, cookies)
@@ -191,7 +195,7 @@ class BrowserPool:
         if proxy_cfg:
             launch_kwargs["proxy"] = proxy_cfg
 
-        context = await cb.launch_context_async(**launch_kwargs)
+        context = None
         harvested: dict[str, str] = {}
         body: str = ""
         final_url: str = url
@@ -199,6 +203,12 @@ class BrowserPool:
         user_agent: str | None = self._default_browser_ua
 
         try:
+            # Serialize context initialization to avoid browserforge fingerprint race conditions
+            if self._launch_lock is None:
+                self._launch_lock = asyncio.Lock()
+            async with self._launch_lock:
+                context = await cb.launch_context_async(**launch_kwargs)
+
             page = context.pages[0] if context.pages else await context.new_page()
             timeout_ms = max(int(cf_wait * 1000), 30000)
             page.set_default_timeout(timeout_ms)
@@ -270,8 +280,9 @@ class BrowserPool:
                         self._default_browser_ua = ua
 
         finally:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(asyncio.shield(context.close()), timeout=10.0)
+            if context is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(asyncio.shield(context.close()), timeout=10.0)
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         logger.info(
