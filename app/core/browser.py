@@ -72,9 +72,12 @@ def _build_options(headless: bool = True) -> ChromiumOptions:
         logger.info(f"Using cloakbrowser binary: {chrome_bin}")
         options.binary_location = chrome_bin
     except Exception as e:
-        chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
-        logger.warning(f"cloakbrowser not found ({e}), using {chrome_bin}")
-        options.binary_location = chrome_bin
+        chrome_bin = os.getenv("CHROME_BIN")
+        if chrome_bin and os.path.exists(chrome_bin):
+            options.binary_location = chrome_bin
+            logger.info(f"Using configured Chrome binary: {chrome_bin}")
+        else:
+            logger.warning(f"cloakbrowser not found ({e}), using system default Chrome")
 
     has_display = bool(os.getenv("DISPLAY"))
     if has_display:
