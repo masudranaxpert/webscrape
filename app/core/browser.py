@@ -282,13 +282,15 @@ class BrowserPool:
         finally:
             if context is not None:
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(asyncio.shield(context.close()), timeout=10.0)
-
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        logger.info(
-            "cloakbrowser: done -> %s | status=%d | cookies=%d | elapsed=%dms",
-            final_url, status, len(harvested), elapsed_ms,
-        )
+                    browser = context.browser
+                    await asyncio.wait_for(asyncio.shield(context.close()), timeout=5.0)
+                    if browser:
+                        await asyncio.wait_for(asyncio.shield(browser.close()), timeout=5.0)
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.info(
+                "cloakbrowser: done -> %s | status=%d | cookies=%d | elapsed=%dms",
+                final_url, status, len(harvested), elapsed_ms,
+            )
 
         return BrowserResult(
             status_code=status,
