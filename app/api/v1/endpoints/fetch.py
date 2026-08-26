@@ -196,12 +196,14 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             _cache_redirect(domain, br.final_url)
             logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
 
-    # 3. Retry fast path if browser hit a barrier but obtained cookies
-    if not req.force_browser and br.cookies and br.status_code != 200:
+    # 3. Retry fast path if browser obtained cookies but rendered content is still challenge
+    is_browser_blocked = br.status_code != 200 or "just a moment" in br.body.lower() or "<title>just a moment" in br.body.lower()
+    if not req.force_browser and br.cookies and is_browser_blocked:
         fresh_cookies = {**br.cookies, **req.inject_cookies}
-        logs.append("[RETRY] Retrying fast HTTP engine with freshly solved Turnstile clearance cookies")
+        retry_url = br.final_url if (br.final_url and "challenges.cloudflare" not in br.final_url) else req.url
+        logs.append(f"[RETRY] Retrying fast HTTP engine on '{retry_url}' with freshly solved Turnstile clearance cookies")
         retry = await httpcloak_fetch(
-            url=br.final_url,
+            url=retry_url,
             method=req.method,
             headers=effective_headers,
             body=req.body,

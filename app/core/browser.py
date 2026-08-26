@@ -173,33 +173,24 @@ class BrowserPool:
                 async with tab.expect_and_bypass_cloudflare_captcha(time_to_wait_captcha=cf_wait):
                     await tab.go_to(url)
 
-                    deadline = time.monotonic() + cf_wait
-                    while time.monotonic() < deadline:
-                        title = (await tab.title).lower()
-                        final_url = await tab.current_url
-                        cookie_list = await tab.get_cookies()
-                        harvested = {c["name"]: c["value"] for c in cookie_list}
-                        body = await tab.page_source
+                # Allow post-bypass redirect / DOM update to settle
+                await asyncio.sleep(1.0)
+                title = (await tab.title).lower()
+                final_url = await tab.current_url
+                body = await tab.page_source
+                harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
 
-                        # Check challenge resolution
-                        if "just a moment" not in title and "attention required" not in title and len(title) > 0:
-                            nav_status["status"] = 200
-                            break
-
-                        if "cf_clearance" in harvested:
-                            await asyncio.sleep(1.0)
-                            body = await tab.page_source
-                            final_url = await tab.current_url
-                            if "just a moment" not in (await tab.title).lower():
-                                nav_status["status"] = 200
-                                break
-
-                        await asyncio.sleep(0.5)
+                is_challenge = (
+                    "just a moment" in title
+                    or "attention required" in title
+                    or "<title>just a moment" in body.lower()
+                    or 'id="challenge-running"' in body
+                )
+                nav_status["status"] = 403 if is_challenge else 200
 
             except Exception as nav_err:
-                # NavigationError (4xx/5xx) or network failure; collect what we have and continue
                 logger.warning("pydoll: navigation error on %s: %s", url, nav_err)
-                nav_status.setdefault("status", 0)
+                nav_status["status"] = 403
                 with contextlib.suppress(Exception):
                     harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
                 with contextlib.suppress(Exception):
@@ -214,15 +205,14 @@ class BrowserPool:
                 with contextlib.suppress(Exception):
                     body = await tab.page_source
 
-            with contextlib.suppress(Exception):
-                if "just a moment" in (await tab.title).lower() or "<title>just a moment" in body.lower():
-                    nav_status["status"] = 403
+            if "just a moment" in body.lower() or "<title>just a moment" in body.lower():
+                nav_status["status"] = 403
 
         finally:
             # Explicitly remove network callback before closing to prevent reference leak
             if _cb_id is not None:
                 with contextlib.suppress(Exception):
-                    tab.remove_callback(_cb_id)
+                    await tab.remove_callback(_cb_id)
             with contextlib.suppress(Exception):
                 await tab.close()
             if context_id:

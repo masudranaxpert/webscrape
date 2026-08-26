@@ -1,11 +1,18 @@
 FROM python:3.13-slim
 
-# Install latest official Google Chrome Stable and dependencies
+# Install latest official Google Chrome Stable and stealth canvas font dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     ca-certificates \
     fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
     libasound2 \
+    libx11-xcb1 \
+    libdbus-glib-1-2 \
+    libnss3 \
+    libgbm1 \
     && wget -q -O /tmp/chrome.deb "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
     && apt-get install -y /tmp/chrome.deb \
     && rm /tmp/chrome.deb \
