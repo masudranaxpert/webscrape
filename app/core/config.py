@@ -37,14 +37,6 @@ def configure_logging() -> None:
         force=True,
     )
 
-    # Always suppress verbose external networking loggers
-    for noisy in ("websockets", "asyncio", "aiohttp", "urllib3", "httpcore"):
+    # Suppress verbose external loggers
+    for noisy in ("websockets", "asyncio", "aiohttp", "urllib3", "httpcore", "playwright", "httpx"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-
-    # Control low-level browser CDP JSON-RPC logs via VERBOSE_BROWSER_LOGS
-    if not VERBOSE_BROWSER_LOGS:
-        for noisy in ("pydoll.connection", "pydoll.elements", "pydoll.browser.managers"):
-            logging.getLogger(noisy).setLevel(logging.WARNING)
-        logging.getLogger("pydoll").setLevel(logging.INFO if DEBUG else logging.WARNING)
-    else:
-        logging.getLogger("pydoll").setLevel(logging.DEBUG)

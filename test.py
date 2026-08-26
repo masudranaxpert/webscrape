@@ -1,6 +1,7 @@
 """Self-check verification script for Anti modules and API flow."""
 
 import asyncio
+from app.core.browser import pool
 from app.core.cookie_store import store
 from app.core.fetcher import httpcloak_fetch
 
@@ -20,9 +21,20 @@ async def test_httpcloak() -> None:
     print("[OK] httpcloak self-check passed")
 
 
+async def test_browser_pool() -> None:
+    """Verify browser pool initialization and execution."""
+    await pool.start()
+    res = await pool.solve_and_fetch("https://httpbin.org/get", cf_wait=10.0)
+    assert res.status_code == 200, f"Browser returned status {res.status_code}"
+    assert "origin" in res.body, "Response body does not contain expected payload"
+    await pool.stop()
+    print("[OK] Browser pool self-check passed")
+
+
 async def main() -> None:
     await test_cookie_store()
     await test_httpcloak()
+    await test_browser_pool()
     print("All checks passed successfully.")
 
 

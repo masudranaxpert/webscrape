@@ -1,4 +1,4 @@
-"""Persistent Chrome browser pool with concurrency control and Cloudflare bypass."""
+"""Stealth browser automation engine backed by CloakBrowser with automated Turnstile solving."""
 
 from __future__ import annotations
 
@@ -6,42 +6,45 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
-import time
-from urllib.parse import urlparse
 import os
-import urllib.request
-import json
+import time
+from typing import Any
+from urllib.parse import urlparse
 
-# --- Monkey patch pydoll to fix aiohttp ssl:default bug on localhost ---
-import pydoll.connection.connection_handler
+import cloakbrowser as cb
 
-async def _patched_resolve_ws_address(self):
-    if self._ws_address:
-        return self._ws_address
-    if not self._page_id:
-        def fetch():
-            with urllib.request.urlopen(f'http://127.0.0.1:{self._connection_port}/json/version', timeout=2) as resp:
-                return json.loads(resp.read())['webSocketDebuggerUrl'].replace("localhost", "127.0.0.1")
-        return await asyncio.to_thread(fetch)
-    return f'ws://127.0.0.1:{self._connection_port}/devtools/page/{self._page_id}'
-
-pydoll.connection.connection_handler.ConnectionHandler._resolve_ws_address = _patched_resolve_ws_address
-# -----------------------------------------------------------------------
-
-from pydoll.browser.chromium import Chrome
-from pydoll.browser.options import ChromiumOptions
-from pydoll.constants import PageLoadState
-from pydoll.protocol.network.events import NetworkEvent
-
-from app.core.config import BROWSER_HEADLESS, DEBUG, MAX_TABS
+from app.core.config import BROWSER_HEADLESS, MAX_TABS
 
 logger = logging.getLogger(__name__)
 
-_PAGE_LOAD_MAP = {
-    "complete": PageLoadState.COMPLETE,
-    "interactive": PageLoadState.INTERACTIVE,
-    "loading": PageLoadState.LOADING,
-}
+# Native closed-shadow-root access via patched Chromium
+FAKE_SHADOW_ARG = "--enable-blink-features=FakeShadowRoot"
+
+# Recursive shadow DOM walker to locate Turnstile checkbox within challenge iframes
+_FIND_CHECKBOX_JS = """() => {
+    function find(root){
+        if(!root) return null;
+        const direct = root.querySelector && root.querySelector('input[type=checkbox]');
+        if(direct) return direct;
+        for(const el of (root.querySelectorAll ? root.querySelectorAll('*') : [])){
+            const sr = el.fakeShadowRoot || el.shadowRoot;
+            if(sr){ const r = find(sr); if(r) return r; }
+        }
+        return null;
+    }
+    const cb = find(document);
+    if(!cb) return {found:false};
+    const r = cb.getBoundingClientRect();
+    return {found:true, checked:cb.checked, x:r.x+r.width/2, y:r.y+r.height/2, w:r.width};
+}"""
+
+_BLOCK_MARKERS = (
+    "you have been blocked",
+    "sorry, you have been blocked",
+    "error 1020",
+    "access denied",
+)
+
 
 @dataclasses.dataclass
 class BrowserResult:
@@ -55,107 +58,51 @@ class BrowserResult:
     user_agent: str | None = None
 
 
-def _build_options(headless: bool = True) -> ChromiumOptions:
-    options = ChromiumOptions()
-    
-    try:
-        import cloakbrowser
-        chrome_bin = cloakbrowser.ensure_binary()
-        logger.info(f"Using cloakbrowser binary: {chrome_bin}")
-        options.binary_location = chrome_bin
-    except Exception as e:
-        chrome_bin = os.getenv("CHROME_BIN")
-        if chrome_bin and os.path.exists(chrome_bin):
-            options.binary_location = chrome_bin
-            logger.info(f"Using configured Chrome binary: {chrome_bin}")
-        else:
-            logger.warning(f"cloakbrowser not found ({e}), using system default Chrome")
-
-    has_display = bool(os.getenv("DISPLAY"))
-    if has_display:
-        logger.info(f"Display detected ({os.getenv('DISPLAY')}) - Running in HEADFUL mode")
-    else:
-        if headless:
-            options.add_argument("--headless=new")
-
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--enable-blink-features=FakeShadowRoot")
-    options.add_argument("--lang=en-US,en")
-
-    options.start_timeout = 30
-    options.block_notifications = True
-    options.block_popups = True
-    options.webrtc_leak_protection = True
-    options.password_manager_enabled = False
-    options.page_load_state = PageLoadState.COMPLETE
-    return options
-
-def _extract_js_value(res: Any) -> Any:
-    if res is None:
+def _parse_proxy(proxy: str | None) -> dict[str, str] | None:
+    """Parse proxy URI into Playwright-compatible proxy dictionary."""
+    if not proxy or not isinstance(proxy, str):
         return None
-    if isinstance(res, (str, int, float, bool)):
-        return res
-    if isinstance(res, dict):
-        if "value" in res:
-            return res["value"]
-        inner = res.get("result")
-        if isinstance(inner, dict):
-            if "value" in inner:
-                return inner["value"]
-            deep = inner.get("result")
-            if isinstance(deep, dict):
-                return deep.get("value") or deep.get("description")
-            return inner.get("description")
-        if "userAgent" in res:
-            return res["userAgent"]
-    for attr in ("value", "description"):
-        if hasattr(res, attr):
-            val = getattr(res, attr)
-            if val is not None and not isinstance(val, (dict, list)):
-                return val
-    return None
+    try:
+        parsed = urlparse(proxy.strip())
+        if not parsed.hostname or not parsed.port:
+            return None
+        cfg = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+        if parsed.username and parsed.password:
+            cfg["username"] = parsed.username
+            cfg["password"] = parsed.password
+        return cfg
+    except Exception:
+        return None
 
 
 class BrowserPool:
     """
-    Persistent Chromium process managing concurrent worker tabs.
+    Manages concurrent stealth browser contexts and automated Cloudflare challenge solving.
     """
 
     def __init__(self, max_tabs: int = MAX_TABS, headless: bool = BROWSER_HEADLESS) -> None:
         self._max_tabs = max_tabs
         self._headless = headless
-        self._chrome: Chrome | None = None
         self._sem: asyncio.Semaphore | None = None
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
-        """Launch background Chrome process during server startup."""
-        options = _build_options(headless=self._headless)
-        self._chrome = Chrome(options=options)
-        await self._chrome.__aenter__()
-        await self._chrome.start()
+        """Pre-warm browser environment and initialize concurrency semaphore."""
         self._sem = asyncio.Semaphore(self._max_tabs)
+        try:
+            bin_path = cb.ensure_binary()
+            logger.info("Using cloakbrowser binary: %s", bin_path)
+        except Exception as err:
+            logger.warning("cloakbrowser binary check warning: %s", err)
 
-        with contextlib.suppress(Exception):
-            v = await self._chrome.get_version()
-            detected_ua = _extract_js_value(v) or (v.get("userAgent") if isinstance(v, dict) else None)
-            if detected_ua and isinstance(detected_ua, str):
-                self._default_browser_ua = detected_ua
-                logger.info("Captured native browser User-Agent: %s", self._default_browser_ua)
+        has_display = bool(os.getenv("DISPLAY"))
+        if has_display:
+            logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
 
-        logger.info("BrowserPool initialized | max_tabs=%d | headless=%s", self._max_tabs, self._headless)
+        logger.info("BrowserPool initialized | max_concurrent=%d | headless=%s", self._max_tabs, self._headless)
 
     async def stop(self) -> None:
-        """Terminate Chrome process during server shutdown."""
-        if self._chrome:
-            with contextlib.suppress(Exception):
-                await self._chrome.stop()
-            with contextlib.suppress(Exception):
-                await self._chrome.__aexit__(None, None, None)
-            self._chrome = None
+        """Clean up browser pool resources."""
         logger.info("BrowserPool stopped")
 
     async def solve_and_fetch(
@@ -166,14 +113,60 @@ class BrowserPool:
         page_load_state: str = "complete",
         cookies: dict[str, str] | None = None,
     ) -> BrowserResult:
-        """Acquire a tab slot, bypass challenge if present, harvest cookies and return result."""
-        if self._chrome is None or self._sem is None:
-            raise RuntimeError("BrowserPool is not running")
+        """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
+        if self._sem is None:
+            self._sem = asyncio.Semaphore(self._max_tabs)
 
         async with self._sem:
-            return await self._run_tab(url, cf_wait, proxy, page_load_state, cookies)
+            return await self._run_context(url, cf_wait, proxy, page_load_state, cookies)
 
-    async def _run_tab(
+    async def _is_bypassed(self, page: Any) -> bool:
+        """Check if challenge wall has cleared."""
+        try:
+            title = (await page.title()).lower()
+            if "just a moment" in title or "attention required" in title or "security check" in title:
+                return False
+
+            html_content = (await page.content()).lower()
+            if "please complete the captcha" in html_content or 'id="challenge-running"' in html_content:
+                return False
+
+            if any(marker in html_content for marker in _BLOCK_MARKERS):
+                return False
+
+            return True
+        except Exception:
+            return False
+
+    async def _click_turnstile_checkbox(self, page: Any) -> bool:
+        """Find Turnstile checkbox inside shadow DOM and click it via native mouse event."""
+        cf_frames = [f for f in page.frames if "challenges.cloudflare" in (f.url or "")]
+        for frame in cf_frames:
+            try:
+                info = await frame.evaluate(_FIND_CHECKBOX_JS)
+                if not info or not info.get("found") or info.get("w", 0) <= 0 or info.get("checked"):
+                    continue
+
+                frame_el = await frame.frame_element()
+                box = await frame_el.bounding_box()
+                if not box:
+                    continue
+
+                click_x = box["x"] + info["x"]
+                click_y = box["y"] + info["y"]
+                logger.info("Turnstile checkbox located: clicking at (%.1f, %.1f)", click_x, click_y)
+                await page.mouse.click(click_x, click_y)
+
+                await asyncio.sleep(0.5)
+                after = await frame.evaluate(_FIND_CHECKBOX_JS)
+                if not after.get("found") or after.get("checked"):
+                    logger.info("Turnstile checkbox click verified")
+                    return True
+            except Exception as e:
+                logger.debug("Turnstile frame interaction exception: %s", e)
+        return False
+
+    async def _run_context(
         self,
         url: str,
         cf_wait: float,
@@ -181,130 +174,110 @@ class BrowserPool:
         page_load_state: str,
         cookies: dict[str, str] | None,
     ) -> BrowserResult:
-        nav_status: dict = {"status": 200, "final_url": url}
-        valid_proxy = proxy.strip() if (proxy and isinstance(proxy, str) and proxy.strip().startswith(("http://", "https://", "socks5://"))) else None
-
-        # Isolate per-request proxy in a separate browser context
-        context_id: str | None = None
-        if valid_proxy:
-            context_id = await self._chrome.create_browser_context(proxy_server=valid_proxy)
-            tab = await self._chrome.new_tab(browser_context_id=context_id)
-        else:
-            tab = await self._chrome.new_tab()
-
         t0 = time.monotonic()
+        proxy_cfg = _parse_proxy(proxy)
+
+        launch_kwargs: dict[str, Any] = {
+            "headless": self._headless,
+            "args": [
+                FAKE_SHADOW_ARG,
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+                "--lang=en-US,en",
+            ],
+            "locale": "en-US",
+        }
+        if proxy_cfg:
+            launch_kwargs["proxy"] = proxy_cfg
+
+        context = await cb.launch_context_async(**launch_kwargs)
         harvested: dict[str, str] = {}
         body: str = ""
         final_url: str = url
-        _cb_id: int | None = None
+        status_code = 200
+        user_agent: str | None = self._default_browser_ua
 
         try:
-            await tab.enable_network_events()
+            page = context.pages[0] if context.pages else await context.new_page()
+            timeout_ms = max(int(cf_wait * 1000), 30000)
+            page.set_default_timeout(timeout_ms)
+            page.set_default_navigation_timeout(timeout_ms)
 
-            async def _on_response(event: dict) -> None:
-                params = event.get("params", {})
-                if params.get("type") == "Document":
-                    resp = params.get("response", {})
-                    resp_url = resp.get("url", "")
-                    if "challenges.cloudflare.com" not in resp_url:
-                        nav_status["status"] = resp.get("status", 200)
-                        nav_status["final_url"] = resp_url or url
-
-            _cb_id = await tab.on(NetworkEvent.RESPONSE_RECEIVED, _on_response)
-
-            # Pre-inject cached cookies to skip Turnstile challenge
+            # Pre-inject cached cookies into context
             if cookies:
-                host = urlparse(url).hostname or ""
-                domain = "." + ".".join(host.split(".")[-2:]) if host.count(".") >= 1 else host
-                await tab.set_cookies([
-                    {"name": k, "value": v, "domain": domain, "path": "/"}
+                cookie_list = [
+                    {"name": k, "value": v, "url": url}
                     for k, v in cookies.items()
-                ])
+                ]
+                with contextlib.suppress(Exception):
+                    await context.add_cookies(cookie_list)
 
-            logger.info("pydoll: navigating -> %s (cf_wait=%.1fs)", url, cf_wait)
-
+            logger.info("cloakbrowser: navigating -> %s (timeout=%.1fs)", url, timeout_ms / 1000)
             try:
-                async with tab.expect_and_bypass_cloudflare_captcha(time_to_wait_captcha=cf_wait):
-                    await tab.go_to(url)
-
-                # Allow post-bypass redirect / DOM update to settle
-                await asyncio.sleep(1.0)
-                title = (await tab.title).lower()
-                final_url = await tab.current_url
-                body = await tab.page_source
-                harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
-
-                is_challenge = (
-                    "just a moment" in title
-                    or "attention required" in title
-                    or "<title>just a moment" in body.lower()
-                    or 'id="challenge-running"' in body
-                )
-                nav_status["status"] = 403 if is_challenge else 200
-
-                # Clearance may land after the wall renders; one reload often clears it
-                if is_challenge:
-                    logger.info("pydoll: challenge persists, reloading once")
-                    with contextlib.suppress(Exception):
-                        await tab.go_to(final_url)
-                        await asyncio.sleep(2.0)
-                        title = (await tab.title).lower()
-                        final_url = await tab.current_url
-                        body = await tab.page_source
-                        harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
-                        is_challenge = (
-                            "just a moment" in title
-                            or "attention required" in title
-                            or "<title>just a moment" in body.lower()
-                            or 'id="challenge-running"' in body
-                        )
-                    nav_status["status"] = 403 if is_challenge else 200
-
+                resp = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                if resp is not None and getattr(resp, "status", None):
+                    status_code = resp.status
             except Exception as nav_err:
-                logger.warning("pydoll: navigation error on %s: %s", url, nav_err)
-                nav_status["status"] = 403
-                with contextlib.suppress(Exception):
-                    harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
-                with contextlib.suppress(Exception):
-                    body = await tab.page_source
-                with contextlib.suppress(Exception):
-                    final_url = await tab.current_url
+                logger.warning("cloakbrowser navigation warning on %s: %s", url, nav_err)
 
-            if not harvested:
-                with contextlib.suppress(Exception):
-                    harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
-            if not body:
-                with contextlib.suppress(Exception):
-                    body = await tab.page_source
+            # Settle period for challenge scripts to execute
+            await asyncio.sleep(2.5)
 
-            if "just a moment" in body.lower() or "<title>just a moment" in body.lower():
-                nav_status["status"] = 403
+            # Check for Cloudflare challenge
+            if not await self._is_bypassed(page):
+                logger.info("Cloudflare challenge detected, entering solver loop...")
+                clicked = False
+                max_retries = max(int(cf_wait / 2), 5)
 
-            # Capture actual browser runtime User-Agent for downstream session reuse
-            user_agent: str | None = self._default_browser_ua
+                for _ in range(max_retries):
+                    if await self._is_bypassed(page):
+                        logger.info("Cloudflare challenge solved successfully")
+                        break
+
+                    if not clicked:
+                        clicked = await self._click_turnstile_checkbox(page)
+
+                    await asyncio.sleep(1.5)
+
+                # If clearance was issued but page hasn't reloaded automatically
+                raw_cookies = await context.cookies()
+                cookie_map = {c["name"]: c["value"] for c in raw_cookies}
+                if not await self._is_bypassed(page) and "cf_clearance" in cookie_map:
+                    logger.info("Clearance cookie present, refreshing page...")
+                    with contextlib.suppress(Exception):
+                        resp = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                        if resp is not None and getattr(resp, "status", None):
+                            status_code = resp.status
+                    await asyncio.sleep(1.0)
+
+            # Final state capture
+            bypassed = await self._is_bypassed(page)
+            status = 200 if bypassed else (status_code if status_code != 200 else 403)
+            final_url = page.url or url
+
             with contextlib.suppress(Exception):
-                ua_res = await tab.execute_script("return navigator.userAgent")
-                extracted_ua = _extract_js_value(ua_res)
-                if extracted_ua and isinstance(extracted_ua, str) and len(extracted_ua) > 10:
-                    user_agent = extracted_ua
+                body = await page.content()
+
+            raw_cookies = await context.cookies()
+            harvested = {c["name"]: c["value"] for c in raw_cookies}
+
+            with contextlib.suppress(Exception):
+                ua = await page.evaluate("navigator.userAgent")
+                if ua and isinstance(ua, str) and len(ua) > 10:
+                    user_agent = ua
                     if not self._default_browser_ua:
-                        self._default_browser_ua = extracted_ua
+                        self._default_browser_ua = ua
 
         finally:
-            # Explicitly remove network callback before closing to prevent reference leak
-            if _cb_id is not None:
-                with contextlib.suppress(Exception):
-                    await tab.remove_callback(_cb_id)
             with contextlib.suppress(Exception):
-                await tab.close()
-            if context_id:
-                with contextlib.suppress(Exception):
-                    await self._chrome.delete_browser_context(context_id)
+                await asyncio.wait_for(asyncio.shield(context.close()), timeout=10.0)
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        status = int(nav_status.get("status", 200))
-
-        logger.info("pydoll: done -> %s | status=%d | cookies=%d | elapsed=%dms", final_url, status, len(harvested), elapsed_ms)
+        logger.info(
+            "cloakbrowser: done -> %s | status=%d | cookies=%d | elapsed=%dms",
+            final_url, status, len(harvested), elapsed_ms,
+        )
 
         return BrowserResult(
             status_code=status,
