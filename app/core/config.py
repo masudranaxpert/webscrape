@@ -18,6 +18,7 @@ PORT: int = int(os.getenv("PORT", "8000"))
 DEFAULT_COOKIE_TTL: int = int(os.getenv("DEFAULT_COOKIE_TTL", "3600"))
 MAX_TABS: int = int(os.getenv("MAX_TABS", "3"))
 BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "true").lower() not in ("false", "0", "no")
+VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() in ("true", "1", "yes")
 
 
 def configure_logging() -> None:
@@ -36,5 +37,14 @@ def configure_logging() -> None:
         force=True,
     )
 
+    # Always suppress verbose external networking loggers
     for noisy in ("websockets", "asyncio", "aiohttp", "urllib3", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    # Control low-level browser CDP JSON-RPC logs via VERBOSE_BROWSER_LOGS
+    if not VERBOSE_BROWSER_LOGS:
+        for noisy in ("pydoll.connection", "pydoll.elements", "pydoll.browser.managers"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+        logging.getLogger("pydoll").setLevel(logging.INFO if DEBUG else logging.WARNING)
+    else:
+        logging.getLogger("pydoll").setLevel(logging.DEBUG)
