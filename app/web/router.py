@@ -19,3 +19,11 @@ async def home_docs() -> HTMLResponse:
         content="<h1>Anti API Documentation</h1><p>Documentation template not found.</p>",
         status_code=404,
     )
+
+
+@web_router.get("/favicon.ico")
+async def favicon() -> Response:
+    """Empty favicon response to prevent 404 logs."""
+    from fastapi import Response
+    return Response(status_code=204)
+

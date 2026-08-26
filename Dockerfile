@@ -2,6 +2,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     CLOAKBROWSER_AUTO_UPDATE=false \
+    CLOAKBROWSER_SUPPRESS_FONT_WARNING=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
@@ -61,12 +62,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN python3 -c "import cloakbrowser; print(cloakbrowser.ensure_binary())"
 
 USER root
-# Symlink cloakbrowser binary to standard system paths for Pydoll validation
+# Symlink cloakbrowser binary to standard system paths
 RUN CHROME_PATH=$(/app/venv/bin/python3 -c "import cloakbrowser; print(cloakbrowser.ensure_binary())") && \
     ln -sf "$CHROME_PATH" /usr/bin/google-chrome && \
     ln -sf "$CHROME_PATH" /usr/bin/google-chrome-stable && \
     chmod 755 "$CHROME_PATH" && \
-    chmod -R 755 /home/ubuntu/.cloakbrowser
+    chmod -R 755 /home/ubuntu/.cloakbrowser && \
+    mkdir -p /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix
 
 USER ubuntu
 
