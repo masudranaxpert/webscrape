@@ -8,6 +8,25 @@ import dataclasses
 import logging
 import time
 from urllib.parse import urlparse
+import os
+import urllib.request
+import json
+
+# --- Monkey patch pydoll to fix aiohttp ssl:default bug on localhost ---
+import pydoll.connection.connection_handler
+
+async def _patched_resolve_ws_address(self):
+    if self._ws_address:
+        return self._ws_address
+    if not self._page_id:
+        def fetch():
+            with urllib.request.urlopen(f'http://127.0.0.1:{self._connection_port}/json/version', timeout=2) as resp:
+                return json.loads(resp.read())['webSocketDebuggerUrl'].replace("localhost", "127.0.0.1")
+        return await asyncio.to_thread(fetch)
+    return f'ws://127.0.0.1:{self._connection_port}/devtools/page/{self._page_id}'
+
+pydoll.connection.connection_handler.ConnectionHandler._resolve_ws_address = _patched_resolve_ws_address
+# -----------------------------------------------------------------------
 
 from pydoll.browser.chromium import Chrome
 from pydoll.browser.options import ChromiumOptions
@@ -24,25 +43,12 @@ _PAGE_LOAD_MAP = {
     "loading": PageLoadState.LOADING,
 }
 
-_CHROME_FLAGS = [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--disable-extensions",
-    "--disable-background-networking",
-    "--disable-sync",
-    "--disable-translate",
-    "--disable-notifications",
-    "--disable-default-apps",
-    "--disable-component-update",
-    "--mute-audio",
-]
-
 _DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/151.0.0.0 Safari/537.36"
 )
+
 
 
 @dataclasses.dataclass
@@ -59,26 +65,45 @@ class BrowserResult:
 
 def _build_options(headless: bool = True) -> ChromiumOptions:
     options = ChromiumOptions()
-    options.headless = headless
+    
+    try:
+        import cloakbrowser
+        chrome_bin = cloakbrowser.ensure_binary()
+        logger.info(f"Using cloakbrowser binary: {chrome_bin}")
+        options.binary_location = chrome_bin
+    except Exception as e:
+        chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+        logger.warning(f"cloakbrowser not found ({e}), using {chrome_bin}")
+        options.binary_location = chrome_bin
+
+    has_display = bool(os.getenv("DISPLAY"))
+    if has_display:
+        logger.info(f"Display detected ({os.getenv('DISPLAY')}) - Running in HEADFUL mode")
+    else:
+        if headless:
+            options.add_argument("--headless=new")
+
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--enable-blink-features=FakeShadowRoot")
+    options.add_argument("--lang=en-US,en")
+    options.add_argument(f"--user-agent={_DEFAULT_UA}")
+
+    options.start_timeout = 30
     options.block_notifications = True
     options.block_popups = True
     options.webrtc_leak_protection = True
     options.password_manager_enabled = False
     options.page_load_state = PageLoadState.COMPLETE
 
-    for flag in _CHROME_FLAGS:
-        if flag not in options.arguments:
-            with contextlib.suppress(Exception):
-                options.add_argument(flag)
-
-    options.add_argument(f"--user-agent={_DEFAULT_UA}")
     return options
 
 
 class BrowserPool:
     """
     Persistent Chromium process managing concurrent worker tabs.
-    ponytail: single browser process; scale to multi-process if tab count exceeds hardware limits.
     """
 
     def __init__(self, max_tabs: int = MAX_TABS, headless: bool = BROWSER_HEADLESS) -> None:
@@ -99,6 +124,8 @@ class BrowserPool:
     async def stop(self) -> None:
         """Terminate Chrome process during server shutdown."""
         if self._chrome:
+            with contextlib.suppress(Exception):
+                await self._chrome.stop()
             with contextlib.suppress(Exception):
                 await self._chrome.__aexit__(None, None, None)
             self._chrome = None
@@ -187,6 +214,24 @@ class BrowserPool:
                     or 'id="challenge-running"' in body
                 )
                 nav_status["status"] = 403 if is_challenge else 200
+
+                # Clearance may land after the wall renders; one reload often clears it
+                if is_challenge:
+                    logger.info("pydoll: challenge persists, reloading once")
+                    with contextlib.suppress(Exception):
+                        await tab.go_to(final_url)
+                        await asyncio.sleep(2.0)
+                        title = (await tab.title).lower()
+                        final_url = await tab.current_url
+                        body = await tab.page_source
+                        harvested = {c["name"]: c["value"] for c in await tab.get_cookies()}
+                        is_challenge = (
+                            "just a moment" in title
+                            or "attention required" in title
+                            or "<title>just a moment" in body.lower()
+                            or 'id="challenge-running"' in body
+                        )
+                    nav_status["status"] = 403 if is_challenge else 200
 
             except Exception as nav_err:
                 logger.warning("pydoll: navigation error on %s: %s", url, nav_err)

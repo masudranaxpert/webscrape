@@ -196,54 +196,6 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             _cache_redirect(domain, br.final_url)
             logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
 
-    # 3. Retry fast path if browser obtained cookies but rendered content is still challenge
-    is_browser_blocked = br.status_code != 200 or "just a moment" in br.body.lower() or "<title>just a moment" in br.body.lower()
-    if not req.force_browser and br.cookies and is_browser_blocked:
-        fresh_cookies = {**br.cookies, **req.inject_cookies}
-        retry_url = br.final_url if (br.final_url and "challenges.cloudflare" not in br.final_url) else req.url
-        logs.append(f"[RETRY] Retrying fast HTTP engine on '{retry_url}' with freshly solved Turnstile clearance cookies")
-        retry = await httpcloak_fetch(
-            url=retry_url,
-            method=req.method,
-            headers=effective_headers,
-            body=req.body,
-            cookies=fresh_cookies,
-            preset=req.preset,
-            proxy=req.proxy,
-            http_version=req.http_version,
-            timeout=req.timeout,
-        )
-
-        if not retry.cf_wall:
-            logs.append(f"[RETRY-SUCCESS] Fast-path retry succeeded (HTTP {retry.status_code}) in {retry.elapsed_ms}ms")
-            extracted = _extract(retry.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
-            if req.selector:
-                logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")
-
-            total_ms = int((time.monotonic() - t_start) * 1000)
-            logs.append(f"[DONE] Request resolved via fast HTTP retry in {total_ms}ms")
-            logger.info("✓ http (retry) | %s -> %d", req.url, retry.status_code)
-
-            return FetchResponse(
-                status_code=retry.status_code,
-                headers=retry.headers,
-                body=retry.body,
-                cookies=br.cookies,
-                url=retry.final_url,
-                protocol=retry.protocol,
-                extracted=extracted,
-                logs=logs,
-                meta=RequestMeta(
-                    via="http",
-                    request_type="http_request",
-                    preset=req.preset,
-                    cf_bypass_attempted=True,
-                    cache_hit=False,
-                    cookies_used=len(fresh_cookies),
-                ),
-            )
-        else:
-            logs.append(f"[RETRY-FAIL] Retry returned status {retry.status_code} -> Falling back to browser rendered content")
 
     extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
     if req.selector:

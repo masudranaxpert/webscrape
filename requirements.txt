@@ -4,3 +4,5 @@ pydoll-python
 httpcloak
 selectolax
 python-dotenv
+cloakbrowser
+
