@@ -95,7 +95,7 @@ const submitBtn = document.getElementById('submitBtn');
 const btnLabel = document.getElementById('btnLabel');
 const jsonOutput = document.getElementById('jsonOutput');
 const htmlOutput = document.getElementById('htmlOutput');
-const cookiesList = document.getElementById('cookiesList');
+const browserStateList = document.getElementById('browserStateList');
 const headersList = document.getElementById('headersList');
 const cookieCount = document.getElementById('cookieCount');
 const logsList = document.getElementById('logsList');
@@ -219,9 +219,9 @@ fetchForm.addEventListener('submit', async (e) => {
                 '</div>';
       }
       html += '</div>';
-      cookiesList.innerHTML = html;
+      browserStateList.innerHTML = html;
     } else {
-      cookiesList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No cookies present in response.</div>';
+      browserStateList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No cookies present in response.</div>';
     }
 
     // Format Headers Tab

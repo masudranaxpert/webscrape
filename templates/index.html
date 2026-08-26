@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/index.css?v=3.0">
+  <link rel="stylesheet" href="/static/index.css?v=3.1">
 </head>
 <body>
   <div class="bg-glow"></div>
@@ -120,7 +120,7 @@
             <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             HTML Body Preview
           </button>
-          <button type="button" class="tab-btn" data-tab="cookiesTab">
+          <button type="button" class="tab-btn" data-tab="browserStateTab">
             <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
             Cookies (<span id="cookieCount">0</span>)
           </button>
@@ -146,8 +146,8 @@
           </div>
 
           <!-- Cookies View -->
-          <div class="tab-pane" id="cookiesTab">
-            <div id="cookiesList">No cookies harvested yet.</div>
+          <div class="tab-pane" id="browserStateTab">
+            <div id="browserStateList">No cookies harvested yet.</div>
           </div>
 
           <!-- Headers View -->
@@ -553,6 +553,6 @@ data = response.<span class="hl-fn">json</span>()
     </div>
   </footer>
 
-  <script src="/static/index.js?v=3.0"></script>
+  <script src="/static/index.js?v=3.1"></script>
 </body>
 </html>
