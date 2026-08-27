@@ -17,6 +17,8 @@ from app.schemas.scraping import FetchRequest, FetchResponse, RequestMeta
 logger = logging.getLogger("anti.fetch")
 router = APIRouter()
 
+from collections import OrderedDict
+
 _MAX_REDIRECTS = 1000
 _redirect_cache: OrderedDict[str, str] = OrderedDict()
 
