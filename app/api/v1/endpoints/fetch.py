@@ -267,6 +267,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         if br.cookies:
             store.set(domain, br.cookies, ua=br.user_agent, ttl=req.cookie_ttl)
             logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) and User-Agent for '{domain}'")
+            if br.final_url and br.final_url != req.url:
+                _cache_redirect(domain, br.final_url)
+                logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
         extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
         if req.selector:
             logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")
