@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from urllib.parse import urlparse
 from fastapi import APIRouter
 
 from app.core.browser import pool
@@ -16,11 +17,9 @@ from app.schemas.scraping import FetchRequest, FetchResponse, RequestMeta
 logger = logging.getLogger("anti.fetch")
 router = APIRouter()
 
-
-# Bounded LRU cache for origin domain -> post-challenge destination URL
-_MAX_REDIRECTS = 500
-from collections import OrderedDict
+_MAX_REDIRECTS = 1000
 _redirect_cache: OrderedDict[str, str] = OrderedDict()
+
 
 # Global primitives for Request Coalescing (Thundering Herd protection)
 _coalesce_events: dict[str, asyncio.Event] = {}
@@ -28,12 +27,14 @@ _coalesce_lock: asyncio.Lock = asyncio.Lock()
 
 
 def _cache_redirect(domain: str, url: str) -> None:
-    """Store redirect destination with LRU eviction."""
-    if domain in _redirect_cache:
-        _redirect_cache.move_to_end(domain)
-    elif len(_redirect_cache) >= _MAX_REDIRECTS:
-        _redirect_cache.popitem(last=False)
-    _redirect_cache[domain] = url
+    """Store redirect hostname with LRU eviction to prevent 403 loops on naked domains."""
+    parsed_final = urlparse(url)
+    if parsed_final.hostname and parsed_final.hostname != domain:
+        if domain in _redirect_cache:
+            _redirect_cache.move_to_end(domain)
+        elif len(_redirect_cache) >= _MAX_REDIRECTS:
+            _redirect_cache.popitem(last=False)
+        _redirect_cache[domain] = parsed_final.netloc
 
 
 def _extract(html: str, selector: str, attr: str, all_matches: bool) -> list[str]:
@@ -97,9 +98,13 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     # 1. Fast path: Direct fingerprint HTTP request
     if not req.force_browser:
-        target_url = _redirect_cache.get(domain) if (_redirect_cache.get(domain) and effective_cookies) else req.url
-        if target_url != req.url:
-            logs.append(f"[REDIRECT-CACHE] Applying known post-challenge route: {target_url}")
+        target_url = req.url
+        if effective_cookies and domain in _redirect_cache:
+            cached_netloc = _redirect_cache[domain]
+            parsed_req = urlparse(req.url)
+            if parsed_req.netloc != cached_netloc:
+                target_url = parsed_req._replace(netloc=cached_netloc).geturl()
+                logs.append(f"[REDIRECT-CACHE] Rewriting target hostname to match post-challenge clearance: {target_url}")
 
         logs.append(f"[HTTP] Dispatching fast-path request via preset '{req.preset}'")
         result = await httpcloak_fetch(
@@ -189,8 +194,16 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         if new_ua and not any(k.lower() == "user-agent" for k in retry_headers):
             retry_headers["user-agent"] = new_ua
             
+        retry_target_url = req.url
+        if retry_cookies and domain in _redirect_cache:
+            cached_netloc = _redirect_cache[domain]
+            parsed_req = urlparse(req.url)
+            if parsed_req.netloc != cached_netloc:
+                retry_target_url = parsed_req._replace(netloc=cached_netloc).geturl()
+                logs.append(f"[REDIRECT-CACHE] Rewriting target hostname for retry: {retry_target_url}")
+
         retry_res = await httpcloak_fetch(
-            url=req.url,
+            url=retry_target_url,
             method=req.method,
             headers=retry_headers,
             body=req.body,
@@ -252,9 +265,6 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         if br.cookies:
             store.set(domain, br.cookies, ua=br.user_agent, ttl=req.cookie_ttl)
             logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) and User-Agent for '{domain}'")
-            if br.final_url and br.final_url != req.url:
-                _cache_redirect(domain, br.final_url)
-                logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
         extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
         if req.selector:
             logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")
