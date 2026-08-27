@@ -7,6 +7,8 @@ import time
 from collections import OrderedDict
 from urllib.parse import urlparse
 
+from app.core.config import MAX_CACHED_DOMAINS
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,5 +81,4 @@ class CookieStore:
         }
 
 
-from app.core.config import MAX_CACHED_DOMAINS
 store = CookieStore(max_domains=MAX_CACHED_DOMAINS)

@@ -99,7 +99,7 @@ class BrowserPool:
             logger.warning("cloakbrowser binary check warning: %s", err)
 
         has_display = bool(os.getenv("DISPLAY"))
-        if has_display:
+        if has_display and not self._headless:
             logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
 
         logger.info("BrowserPool initialized | max_concurrent=%d | headless=%s", self._max_tabs, self._headless)
@@ -185,6 +185,10 @@ class BrowserPool:
     ) -> BrowserResult:
         t0 = time.monotonic()
         proxy_cfg = _parse_proxy(proxy)
+        # Map API load-state names onto Playwright wait_until values
+        load_state = {"complete": "load", "interactive": "domcontentloaded"}.get(
+            (page_load_state or "").lower(), "domcontentloaded"
+        )
 
         launch_kwargs: dict[str, Any] = {
             "headless": self._headless,
@@ -202,6 +206,8 @@ class BrowserPool:
         body: str = ""
         final_url: str = url
         status_code = 200
+        status: int = 200
+        resp_headers: dict[str, str] = {}
         user_agent: str | None = self._default_browser_ua
 
         try:
@@ -234,15 +240,15 @@ class BrowserPool:
 
             logger.info("cloakbrowser: navigating -> %s (timeout=%.1fs)", url, timeout_ms / 1000)
             try:
-                resp = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                resp = await page.goto(url, wait_until=load_state, timeout=timeout_ms)
                 if resp is not None and getattr(resp, "status", None):
                     status_code = resp.status
+                    resp_headers = dict(getattr(resp, "headers", None) or {})
             except Exception as nav_err:
                 logger.warning("cloakbrowser navigation warning on %s: %s", url, nav_err)
 
             # Settle period for challenge scripts to execute
             await asyncio.sleep(2.5)
-
             # Check for Cloudflare challenge
             if not await self._is_bypassed(page):
                 logger.info("Cloudflare challenge detected, entering solver loop...")
@@ -265,9 +271,10 @@ class BrowserPool:
                 if not await self._is_bypassed(page) and "cf_clearance" in cookie_map:
                     logger.info("Clearance cookie present, refreshing page...")
                     with contextlib.suppress(Exception):
-                        resp = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                        resp = await page.goto(url, wait_until=load_state, timeout=15000)
                         if resp is not None and getattr(resp, "status", None):
                             status_code = resp.status
+                            resp_headers = dict(getattr(resp, "headers", None) or {})
                     await asyncio.sleep(1.0)
 
             # Final state capture
@@ -303,6 +310,7 @@ class BrowserPool:
             body=body,
             cookies=harvested,
             final_url=final_url,
+            headers=resp_headers,
             elapsed_ms=elapsed_ms,
             user_agent=user_agent,
         )

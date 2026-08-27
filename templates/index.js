@@ -258,7 +258,6 @@ fetchForm.addEventListener('submit', async (e) => {
           colored = colored.replace(/(\[HTTP-BLOCKED\]|\[HTTP-INTERSTITIAL\]|\[DETECT\]|\[ESCALATE\]|\[FORCE\])/g, '<span style="color:#fbbf24;font-weight:700">$1</span>');
           colored = colored.replace(/(\[HTTP-FAIL\]|\[RETRY-FAIL\]|\[FAIL\]|\[ERROR\])/g, '<span style="color:#f43f5e;font-weight:700">$1</span>');
           colored = colored.replace(/(\[BROWSER\]|\[SOLVER\])/g, '<span style="color:#c084fc;font-weight:700">$1</span>');
-          colored = colored.replace(/(\[REDIRECT\]|\[REDIRECT-CACHE\])/g, '<span style="color:#fb923c;font-weight:700">$1</span>');
           logHtml += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);">${colored}</div>`;
         }
         logsList.innerHTML = logHtml;

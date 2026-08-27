@@ -53,12 +53,8 @@ def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -
     # Challenge DOM indicators
     has_challenge_element = any(ind in body for ind in _CHALLENGE_SUBSTRINGS)
 
-    # 4xx/5xx status with Cloudflare challenge markers
+    # Any block-status response is treated as a wall -> browser escalation
     if status in (403, 429, 503):
-        if has_challenge_element:
-            return True
-        if "cloudflare" in body_lower and any(w in body_lower for w in ("turnstile", "challenge", "ray id")):
-            return True
         return True
 
     # 200 status during ongoing interstitial verification
