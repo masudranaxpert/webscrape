@@ -125,6 +125,16 @@ class FetchRequest(BaseModel):
         description="Custom cookies to inject before navigation.",
         examples=[{"session_token": "abc123xyz"}],
     )
+    cookie_allowlist: list[str] | None = Field(
+        default=None,
+        description="Allowed cookie names or glob/regex patterns (e.g. ['cf_*', '__cf*', 'PHPSESSID', 'custom_token*']). If None, defaults to essential bypass & session patterns.",
+        examples=[["cf_*", "__cf*", "PHPSESSID", "movielinkbd_vote_browser_*"]],
+    )
+    cookie_limit: int = Field(
+        default=35,
+        description="Maximum number of cookies allowed in request header before truncating oldest to prevent HTTP 400 buffer overflow.",
+        examples=[35],
+    )
 
     # HTML parsing settings
     selector: str | None = Field(

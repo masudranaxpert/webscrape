@@ -75,7 +75,13 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     domain = store.domain_of(req.url)
     cached_cookies = store.get(domain) or {}
     cached_ua = store.get_ua(domain)
-    effective_cookies = {**cached_cookies, **req.inject_cookies}
+    raw_effective = {**cached_cookies, **req.inject_cookies}
+    effective_cookies, was_truncated = store.filter_and_limit(
+        cookies=raw_effective,
+        allowlist=req.cookie_allowlist,
+        inject_cookies=req.inject_cookies,
+        max_cookies=req.cookie_limit,
+    )
     cache_hit = bool(cached_cookies)
 
     logs.append(f"[INIT] Request initialized for target: {req.url} (Method: {req.method})")
@@ -84,6 +90,15 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append(f"[CACHE] Found {len(cached_cookies)} pre-cached session cookies for domain '{domain}'")
     else:
         logs.append(f"[CACHE] Cache miss for domain '{domain}' (No prior session tokens)")
+
+    if req.cookie_allowlist:
+        logs.append(f"[ALLOWLIST] Applied custom cookie allowlist filter ({len(req.cookie_allowlist)} patterns): {req.cookie_allowlist}")
+
+    if was_truncated or len(raw_effective) > len(effective_cookies):
+        logs.append(
+            f"[COOKIE-LIMIT] Cookie count ({len(raw_effective)}) exceeded limit ({req.cookie_limit}) or contained non-allowlisted cookies. "
+            f"Safely truncated to {len(effective_cookies)} cookies for safe execution without HTTP 400."
+        )
 
     if req.inject_cookies:
         logs.append(f"[INJECT] Injected {len(req.inject_cookies)} custom cookies into request")
@@ -124,8 +139,18 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         if not result.cf_wall:
             logs.append(f"[HTTP-SUCCESS] Received HTTP {result.status_code} ({result.protocol or 'h2'}) in {result.elapsed_ms}ms (No challenge wall)")
             if result.cookies:
-                store.set(domain, {**effective_cookies, **result.cookies}, ua=effective_ua, ttl=req.cookie_ttl)
-                logs.append(f"[CACHE] Stored {len(result.cookies)} session cookies for '{domain}' (TTL: {req.cookie_ttl}s)")
+                merged = {**effective_cookies, **result.cookies}
+                store.set(
+                    domain,
+                    merged,
+                    ua=effective_ua,
+                    ttl=req.cookie_ttl,
+                    allowlist=req.cookie_allowlist,
+                    inject_cookies=req.inject_cookies,
+                    max_cookies=req.cookie_limit,
+                )
+                cached_count = len(store.get(domain) or {})
+                logs.append(f"[CACHE] Filtered & stored {cached_count} session cookies for '{domain}' (TTL: {req.cookie_ttl}s)")
 
             extracted = _extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
             if req.selector:
@@ -265,8 +290,17 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
         # Cache harvested cookies, session User-Agent, and resolved redirect target
         if br.cookies:
-            store.set(domain, br.cookies, ua=br.user_agent, ttl=req.cookie_ttl)
-            logs.append(f"[CACHE] Saved {len(br.cookies)} harvested cookies (cf_clearance/session) and User-Agent for '{domain}'")
+            store.set(
+                domain,
+                br.cookies,
+                ua=br.user_agent,
+                ttl=req.cookie_ttl,
+                allowlist=req.cookie_allowlist,
+                inject_cookies=req.inject_cookies,
+                max_cookies=req.cookie_limit,
+            )
+            cached_count = len(store.get(domain) or {})
+            logs.append(f"[CACHE] Saved {cached_count} harvested cookies and User-Agent for '{domain}'")
             if br.final_url and br.final_url != req.url:
                 _cache_redirect(domain, br.final_url)
                 logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
