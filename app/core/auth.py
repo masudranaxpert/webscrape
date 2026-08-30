@@ -1,4 +1,4 @@
-"""Authentication and server-side in-memory daily playground rate limiting."""
+"""Authentication dependency and in-memory daily playground rate limiter."""
 
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ http_bearer = HTTPBearer(auto_error=False)
 
 class PlaygroundQuotaManager:
     """
-    In-memory daily quota tracker for public playground/demo requests.
-    Enforces a strict server-side ceiling without relying on client localStorage.
+    In-memory daily quota tracker for the web playground demo (50 req/day limit).
     """
 
     def __init__(self, limit: int = PLAYGROUND_DAILY_LIMIT) -> None:
@@ -39,7 +38,7 @@ class PlaygroundQuotaManager:
             if self._count >= self.limit:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Daily demo limit of {self.limit} requests reached for {today}. Provide a valid 'X-API-Key' for unlimited access.",
+                    detail=f"Daily demo limit ({self.limit} requests/day) reached for {today}. Provide a valid 'X-API-Key' for direct API access.",
                 )
             self._count += 1
             return self._count, max(0, self.limit - self._count)
@@ -66,23 +65,20 @@ async def verify_api_key(
     bearer_creds: HTTPAuthorizationCredentials | None = Security(http_bearer),
 ) -> str:
     """
-    Validate incoming request authentication.
-    - If valid API_KEY provided -> Unlimited access.
-    - If invalid API_KEY provided -> 401 Unauthorized.
-    - If no API_KEY provided -> Tracked and capped by in-memory daily limit (50 req/day).
+    Strictly validate API Key for API endpoints. 100% required.
+    Returns 401 Unauthorized if API key is missing or invalid.
     """
+    if not API_KEY:
+        # If API_KEY is not configured in .env, permit execution
+        return ""
+
     provided_key = header_key or (bearer_creds.credentials if bearer_creds else None)
 
-    # 1. Check if user provided an API Key
-    if provided_key:
-        if API_KEY and secrets.compare_digest(provided_key.strip(), API_KEY.strip()):
-            return provided_key.strip()
+    if not provided_key or not secrets.compare_digest(provided_key.strip(), API_KEY.strip()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Key. Provide a valid 'X-API-Key' header or Bearer token.",
+            detail="Invalid or missing API Key. API requests require a valid 'X-API-Key' header or Bearer token.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # 2. If API_KEY is configured on server and no key sent, enforce in-memory server quota
-    quota_manager.check_and_consume()
-    return "demo_playground"
+    return provided_key.strip()

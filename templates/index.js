@@ -175,7 +175,8 @@ fetchForm.addEventListener('submit', async (e) => {
       reqHeaders['X-API-Key'] = apiKey;
     }
 
-    const res = await fetch('/fetch', {
+    const endpoint = apiKey ? '/fetch' : '/playground/fetch';
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: reqHeaders,
       body: JSON.stringify({ url: url })

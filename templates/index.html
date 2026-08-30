@@ -267,9 +267,9 @@
               <tbody>
                 <tr>
                   <td><span class="param-name">X-API-Key</span></td>
-                  <td><span class="badge-opt">Optional / Req for >50 reqs</span></td>
+                  <td><span class="badge-req">Required</span></td>
                   <td><span class="param-type">string</span></td>
-                  <td>Secret API key configured in <code>.env</code> (e.g. <code>anti_secret_key_123</code>). Required for unlimited production usage beyond the 50/day public playground limit.</td>
+                  <td>Secret API key configured in <code>.env</code> (e.g. <code>anti_secret_key_123</code>). 100% required for direct API endpoints (<code>/fetch</code>, <code>/cookies</code>). Missing or invalid keys return <code>401 Unauthorized</code>.</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">Authorization</span></td>
