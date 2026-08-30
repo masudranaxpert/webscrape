@@ -36,6 +36,7 @@
         <a href="#endpoints" class="nav-link">Endpoints</a>
         <a href="#guides" class="nav-link">Feature Guides</a>
         <a href="#examples" class="nav-link">Examples</a>
+        <a href="/docs" target="_blank" class="nav-link" style="color:var(--accent-cyan);font-weight:600;">Swagger Docs ↗</a>
         <div class="status-badge" id="liveStatusBadge">
           <span class="status-dot"></span>
           <span id="statusText">Connecting...</span>
@@ -116,25 +117,40 @@
           </svg>
           Live Interactive Playground
         </h2>
-        <span style="font-size: 0.85rem; color: var(--text-muted);">Test any protected URL in real time</span>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#202024;border:1px solid #2e2e34;border-radius:20px;font-size:0.82rem;">
+            <span style="color:#fb923c;font-weight:600;">Daily Quota:</span>
+            <span id="dailyQuota" style="font-weight:700;color:#4ade80;">50/50</span>
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Max 50 req/day</span>
+        </div>
       </div>
 
       <form id="fetchForm" class="interactive-form">
-        <div class="input-wrapper">
-          <svg class="svg-icon input-icon" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="2" y1="12" x2="22" y2="12" />
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-          </svg>
-          <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page"
-            value="https://httpbin.org/get" required />
+        <div style="display:flex;gap:12px;width:100%;flex-wrap:wrap;">
+          <div class="input-wrapper" style="flex:2;min-width:280px;">
+            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page"
+              value="https://httpbin.org/get" required />
+          </div>
+          <div class="input-wrapper" style="flex:1;min-width:200px;">
+            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <input type="password" id="apiKeyInput" class="input-url" placeholder="X-API-Key (optional/saved)" />
+          </div>
+          <button type="submit" id="submitBtn" class="btn-send" style="min-width:140px;">
+            <svg class="svg-icon" id="btnIcon" viewBox="0 0 24 24">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            <span id="btnLabel">Send Request</span>
+          </button>
         </div>
-        <button type="submit" id="submitBtn" class="btn-send">
-          <svg class="svg-icon" id="btnIcon" viewBox="0 0 24 24">
-            <polygon points="5 3 19 12 5 21 5 3" />
-          </svg>
-          <span id="btnLabel">Send Request</span>
-        </button>
       </form>
 
       <!-- Response Card -->
@@ -236,6 +252,40 @@
             Primary endpoint for fetching content. Automatically routes through the fast-path or executes Cloudflare
             bypass via the persistent browser pool.
           </p>
+
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Authentication & Request Headers</h4>
+          <div class="table-container" style="margin-bottom: 24px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Header</th>
+                  <th>Requirement</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="param-name">X-API-Key</span></td>
+                  <td><span class="badge-opt">Optional / Req for >50 reqs</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td>Secret API key configured in <code>.env</code> (e.g. <code>anti_secret_key_123</code>). Required for unlimited production usage beyond the 50/day public playground limit.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">Authorization</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td>Bearer token alternative: <code>Bearer &lt;your_api_key&gt;</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">Content-Type</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td>Must be set to <code>application/json</code>.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
           <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Request Parameters (JSON Body)</h4>
           <div class="table-container">
@@ -646,9 +696,10 @@
         </div>
         <pre><code><span class="hl-keyword">import</span> httpx
 
-<span class="hl-comment"># Send stealth request</span>
+<span class="hl-comment"># Send stealth request with API key</span>
 response = httpx.<span class="hl-fn">post</span>(
     <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: <span class="hl-string">"anti_secret_key_123"</span>},
     json={
         <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/protected-page"</span>,
         <span class="json-key">"selector"</span>: <span class="hl-string">"title"</span>,
@@ -677,6 +728,7 @@ data = response.<span class="hl-fn">json</span>()
           </button>
         </div>
         <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/fetch \
+  -H <span class="hl-string">"X-API-Key: anti_secret_key_123"</span> \
   -H <span class="hl-string">"Content-Type: application/json"</span> \
   -d <span class="hl-string">'{
     "url": "https://example.com/protected-page",

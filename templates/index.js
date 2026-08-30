@@ -69,7 +69,27 @@ document.querySelectorAll('.guide-tab-btn').forEach(btn => {
   });
 });
 
-// Live Health Status Checker
+// In-memory quota state tracked from server
+let serverQuota = { limit: 50, used: 0, remaining: 50 };
+
+function updatePlaygroundQuotaUI(quotaData) {
+  if (quotaData) {
+    serverQuota = quotaData;
+  }
+  const quotaEl = document.getElementById('dailyQuota');
+  if (quotaEl) {
+    quotaEl.textContent = `${serverQuota.remaining}/${serverQuota.limit}`;
+    if (serverQuota.remaining <= 5) {
+      quotaEl.style.color = '#f43f5e';
+    } else if (serverQuota.remaining <= 15) {
+      quotaEl.style.color = '#fbbf24';
+    } else {
+      quotaEl.style.color = '#4ade80';
+    }
+  }
+}
+
+// Live Health & Quota Status Checker
 async function checkHealth() {
   const statusText = document.getElementById('statusText');
   const liveStatusBadge = document.getElementById('liveStatusBadge');
@@ -79,6 +99,9 @@ async function checkHealth() {
     if (data.status === 'ok') {
       statusText.textContent = `Online (${data.domains_cached} cached)`;
       liveStatusBadge.style.color = 'var(--accent-green)';
+      if (data.quota) {
+        updatePlaygroundQuotaUI(data.quota);
+      }
     }
   } catch (err) {
     statusText.textContent = 'Offline';
@@ -91,6 +114,7 @@ setInterval(checkHealth, 10000);
 // Form Submission & Live Runner
 const fetchForm = document.getElementById('fetchForm');
 const targetUrlInput = document.getElementById('targetUrl');
+const apiKeyInput = document.getElementById('apiKeyInput');
 const submitBtn = document.getElementById('submitBtn');
 const btnLabel = document.getElementById('btnLabel');
 const jsonOutput = document.getElementById('jsonOutput');
@@ -110,6 +134,19 @@ fetchForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const url = targetUrlInput.value.trim();
   if (!url) return;
+
+  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+
+  // If no API key and server quota is already 0, block early
+  if (!apiKey && serverQuota.remaining <= 0) {
+    statusPill.className = 'metric-pill amber';
+    statusPill.textContent = 'Quota Exceeded';
+    jsonOutput.innerHTML = `<span style="color:#f43f5e">// [429 Too Many Requests]\nDaily server demo limit (${serverQuota.limit}/${serverQuota.limit}) reached.\nPlease provide a valid X-API-Key in the input box for unlimited scraping.</span>`;
+    if (logsList) {
+      logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[RATE-LIMIT] In-memory server quota exhausted (${serverQuota.limit}/${serverQuota.limit}). Provide an API Key to bypass demo limit.</div>`;
+    }
+    return;
+  }
 
   submitBtn.disabled = true;
   btnLabel.textContent = 'Processing...';
@@ -133,14 +170,50 @@ fetchForm.addEventListener('submit', async (e) => {
   const t0 = performance.now();
 
   try {
+    const reqHeaders = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      reqHeaders['X-API-Key'] = apiKey;
+    }
+
     const res = await fetch('/fetch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: reqHeaders,
       body: JSON.stringify({ url: url })
     });
 
     const elapsed = Math.round(performance.now() - t0);
     const data = await res.json();
+
+    // Refresh live quota from server
+    checkHealth();
+
+    // Handle 429 Rate Limit
+    if (res.status === 429) {
+      statusPill.className = 'metric-pill amber';
+      statusPill.textContent = '429 Rate Limited';
+      viaPill.textContent = 'Engine: --';
+      cachePill.textContent = 'Cache: --';
+      timePill.textContent = `Latency: ${elapsed} ms`;
+      jsonOutput.innerHTML = syntaxHighlight(data);
+      if (logsList) {
+        logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[429 RATE-LIMIT] ${data.detail || 'Daily server demo limit reached. Provide a valid X-API-Key.'}</div>`;
+      }
+      return;
+    }
+
+    // Handle 401 Unauthorized
+    if (res.status === 401) {
+      statusPill.className = 'metric-pill amber';
+      statusPill.textContent = '401 Unauthorized';
+      viaPill.textContent = 'Engine: --';
+      cachePill.textContent = 'Cache: --';
+      timePill.textContent = `Latency: ${elapsed} ms`;
+      jsonOutput.innerHTML = syntaxHighlight(data);
+      if (logsList) {
+        logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH-ERROR] 401 Unauthorized: Invalid API Key. Please verify your X-API-Key.</div>`;
+      }
+      return;
+    }
 
     // Update Status Pill
     if (data.status_code >= 200 && data.status_code < 300) {

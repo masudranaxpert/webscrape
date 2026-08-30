@@ -1,46 +1,38 @@
 # Anti-Bot Scraping API 🚀
 
-A high-performance, asynchronous web scraping API designed to seamlessly bypass Cloudflare Turnstile and other advanced bot protections. It features a dual-engine architecture that intelligently routes traffic to maximize speed while minimizing server resource usage (RAM/CPU).
+High-performance async scraping API built with FastAPI. Combines TLS fingerprinting (`httpcloak`) with stealth browser solving (`cloakbrowser`) to bypass Cloudflare Turnstile with minimal CPU/RAM footprint.
 
-## ✨ Key Features
+## ✨ Features
 
-* **Dual-Engine Architecture**: 
-  * **Fast-Path**: Uses `httpcloak` for high-speed, low-footprint HTTP requests with perfect TLS fingerprinting.
-  * **Slow-Path**: Automatically falls back to a persistent, stealthy Chromium browser (`cloakbrowser`) to solve complex JS challenges and Turnstile captchas.
-* **Request Coalescing (Thundering Herd Protection)**: Can handle 1000s of concurrent requests to the same domain. If a challenge is detected, exactly *one* browser instance is launched to solve it, while all other requests wait in memory and instantly reuse the harvested cookies upon success. Zero memory leaks!
-* **Automated Session Management**: Built-in Bounded LRU `CookieStore` automatically caches, injects, and rotates `cf_clearance` and session cookies.
-* **Data Extraction**: Built-in CSS selector support via `selectolax` for blazingly fast HTML parsing.
-* **Fully Asynchronous**: Built on `FastAPI` and `asyncio`, designed for massive concurrency.
+* **Dual-Engine Architecture**: Fast HTTP TLS-fingerprinted requests with automated fallback to headless Chromium for Turnstile challenges.
+* **Request Coalescing**: Groups concurrent requests per domain so only 1 browser tab solves the challenge while others wait and reuse cookies.
+* **Smart Session Store**: In-memory LRU `CookieStore` for `cf_clearance` caching, allowlisting, and header size safety.
+* **HTML Extraction**: Fast CSS selector parsing powered by `selectolax`.
+* **Resource Safe**: Semaphore-bounded browser pool with zero socket/context leaks.
 
 ## 🚀 Getting Started
 
-### Prerequisites
-* Python 3.10+
-* [uv](https://github.com/astral-sh/uv) (Recommended for dependency management)
-
 ### Installation
-
-1. Clone the repository and install dependencies:
 ```bash
 uv pip install -r requirements.txt
 ```
 
-2. Playwright browsers will be managed automatically via `cloakbrowser`.
-
 ### Running the API
-
-Start the FastAPI server:
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ## 📖 API Usage
 
 ### `POST /fetch`
 
-Execute a stealth scraping request.
+**Headers:**
+```http
+X-API-Key: anti_secret_key_123
+Content-Type: application/json
+```
 
-**Example Request:**
+**Payload:**
 ```json
 {
   "url": "https://example.com/protected-page",
@@ -50,37 +42,29 @@ Execute a stealth scraping request.
 }
 ```
 
-**Advanced Payload:**
+**Optional Parameters:**
 ```json
 {
   "url": "https://example.com/protected-page",
   "method": "GET",
+  "proxy": "http://user:pass@proxy.ip:port",
   "force_browser": false,
-  "preset": "auto", 
-  "timeout": 30,
-  "cookie_ttl": 1800
+  "preset": "chrome-latest-windows",
+  "cookie_ttl": 3600,
+  "timeout": 30
 }
 ```
 
-## 🛠️ Testing
+## ⚙️ Configuration (`.env`)
 
-A load-testing script (`m.py`) is included to verify the Request Coalescing behavior. It fires 100 concurrent requests to a Cloudflare-protected site and ensures only 1 browser is used.
+* `API_KEY`: Secret authentication key for API access (required for `/fetch` and `/cookies`)
+* `PORT`: Server port (default: `8000`)
+* `MAX_TABS`: Concurrency limit for worker browser tabs (default: `3`)
+* `BROWSER_HEADLESS`: Run Chromium headless (default: `true`)
+* `DEFAULT_COOKIE_TTL`: Cookie cache TTL in seconds (default: `3600`)
+* `MAX_CACHED_DOMAINS`: Max cached domain count (default: `10`)
 
-```bash
-python m.py
-```
+## 🔮 Next Phase / Roadmap
 
-To run the internal system self-checks:
-```bash
-python test.py
-```
-
-## ⚙️ Configuration
-
-Environment variables can be set via `.env`:
-* `MAX_TABS`: Maximum number of concurrent browser tabs allowed (Default: 3).
-* `MAX_CACHED_DOMAINS`: Maximum number of domains to cache cookies for (Default: 10).
-* `BROWSER_HEADLESS`: Run Chromium in headless mode (Default: true).
-
----
-*Built for efficiency. Scrape responsibly.*
+* **Proxy-Aware Clearance Caching**: Key cached `cf_clearance` tokens by `(domain, proxy)` pair instead of domain alone. Since Cloudflare binds clearance tokens to the solver's egress IP, this eliminates redundant 403 fallbacks when rotating distinct proxies.
+* **Distributed Session Store**: Optional Redis backend for `CookieStore` to support horizontal scaling across multi-worker clusters.

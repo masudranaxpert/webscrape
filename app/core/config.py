@@ -13,6 +13,7 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
 TEMPLATES_DIR: Path = BASE_DIR / "templates"
 DOCS_HTML_PATH: Path = TEMPLATES_DIR / "index.html"
 
+API_KEY: str = os.getenv("API_KEY", "")
 DEBUG: bool = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 PORT: int = int(os.getenv("PORT", "8000"))
 DEFAULT_COOKIE_TTL: int = int(os.getenv("DEFAULT_COOKIE_TTL", "3600"))
