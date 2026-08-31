@@ -9,7 +9,7 @@ import time
 from collections import OrderedDict
 from urllib.parse import urlparse
 
-from app.core.config import MAX_CACHED_DOMAINS
+from app.core.config import DEFAULT_COOKIE_TTL, MAX_CACHED_DOMAINS
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class CookieStore:
         domain: str,
         cookies: dict[str, str],
         ua: str | None = None,
-        ttl: int = 3600,
+        ttl: int = DEFAULT_COOKIE_TTL,
         allowlist: list[str] | None = None,
         inject_cookies: dict[str, str] | None = None,
         max_cookies: int = 35,

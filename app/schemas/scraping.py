@@ -116,9 +116,9 @@ class FetchRequest(BaseModel):
 
     # Cookie settings
     cookie_ttl: int = Field(
-        default=3600,
-        description="Cache duration in seconds for harvested cookies.",
-        examples=[3600],
+        default=86400,
+        description="Cache duration in seconds for harvested cookies (Default: 86400s / 24 hours).",
+        examples=[86400],
     )
     inject_cookies: dict[str, str] = Field(
         default_factory=dict,
@@ -164,7 +164,7 @@ class FetchRequest(BaseModel):
                     "selector": "a.download-link",
                     "selector_attr": "href",
                     "selector_all": True,
-                    "cookie_ttl": 3600,
+                    "cookie_ttl": 86400,
                 }
             ]
         }
