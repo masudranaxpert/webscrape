@@ -13,7 +13,11 @@ from urllib.parse import urlparse
 
 import cloakbrowser as cb
 
-from app.core.config import BROWSER_HEADLESS, MAX_TABS
+from app.core.config import (
+    BROWSER_HEADLESS,
+    BROWSER_MAX_LIFETIME_SEC,
+    MAX_TABS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +82,24 @@ def _parse_proxy(proxy: str | None) -> dict[str, str] | None:
 class BrowserPool:
     """
     Manages concurrent stealth browser contexts and automated Cloudflare challenge solving.
+    Includes automated worker recycling to eliminate stale HTTP disk cache and memory bloat.
     """
 
-    def __init__(self, max_tabs: int = MAX_TABS, headless: bool = BROWSER_HEADLESS) -> None:
+    def __init__(
+        self,
+        max_tabs: int = MAX_TABS,
+        headless: bool = BROWSER_HEADLESS,
+        max_lifetime_sec: int = BROWSER_MAX_LIFETIME_SEC,
+    ) -> None:
         self._max_tabs = max_tabs
         self._headless = headless
+        self._max_lifetime_sec = max_lifetime_sec
         self._sem: asyncio.Semaphore | None = None
         self._launch_lock: asyncio.Lock | None = None
         self._browser: Any | None = None
+        self._browser_created_at: float = 0.0
+        self._active_contexts: int = 0
+        self._retiring_browsers: set[Any] = set()
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
@@ -102,14 +116,67 @@ class BrowserPool:
         if has_display and not self._headless:
             logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
 
-        logger.info("BrowserPool initialized | max_concurrent=%d | headless=%s", self._max_tabs, self._headless)
+        logger.info(
+            "BrowserPool initialized | max_concurrent=%d | headless=%s | max_lifetime=%ds",
+            self._max_tabs,
+            self._headless,
+            self._max_lifetime_sec,
+        )
+
+    def _should_recycle(self) -> bool:
+        """Check if active browser worker has exceeded max lifetime TTL."""
+        if self._browser is None:
+            return False
+        return (time.monotonic() - self._browser_created_at) >= self._max_lifetime_sec
+
+    async def _close_browser_safely(self, browser: Any) -> None:
+        """Safely close a browser instance and release process resources."""
+        if browser is not None:
+            with contextlib.suppress(Exception):
+                await browser.close()
+            self._retiring_browsers.discard(browser)
+
+    async def _get_browser(self, launch_kwargs: dict[str, Any]) -> Any:
+        """Acquire healthy browser instance, gracefully retiring aged workers."""
+        if self._launch_lock is None:
+            self._launch_lock = asyncio.Lock()
+
+        async with self._launch_lock:
+            if self._should_recycle():
+                age = time.monotonic() - self._browser_created_at
+                logger.info(
+                    "Retiring browser worker (age=%.1fs, active_contexts=%d) for graceful recycle",
+                    age,
+                    self._active_contexts,
+                )
+                old_browser = self._browser
+                self._browser = None
+                if old_browser:
+                    if self._active_contexts == 0:
+                        asyncio.create_task(self._close_browser_safely(old_browser))
+                    else:
+                        self._retiring_browsers.add(old_browser)
+
+            if self._browser is None:
+                self._browser = await cb.launch_async(**launch_kwargs)
+                self._browser_created_at = time.monotonic()
+
+            return self._browser
 
     async def stop(self) -> None:
-        """Clean up browser pool resources."""
-        if self._browser:
-            with contextlib.suppress(Exception):
-                await self._browser.close()
-            self._browser = None
+        """Clean up all active and retiring browser resources."""
+        if self._launch_lock is None:
+            self._launch_lock = asyncio.Lock()
+        async with self._launch_lock:
+            if self._browser:
+                with contextlib.suppress(Exception):
+                    await self._browser.close()
+                self._browser = None
+            for retiring in list(self._retiring_browsers):
+                with contextlib.suppress(Exception):
+                    await retiring.close()
+            self._retiring_browsers.clear()
+            self._active_contexts = 0
         logger.info("BrowserPool stopped")
 
     async def solve_and_fetch(
@@ -211,18 +278,16 @@ class BrowserPool:
         user_agent: str | None = self._default_browser_ua
 
         try:
-            if self._launch_lock is None:
-                self._launch_lock = asyncio.Lock()
-            
-            async with self._launch_lock:
-                if self._browser is None:
-                    self._browser = await cb.launch_async(**launch_kwargs)
+            browser = await self._get_browser(launch_kwargs)
+            if self._launch_lock is not None:
+                async with self._launch_lock:
+                    self._active_contexts += 1
 
             context_kwargs: dict[str, Any] = {"locale": "en-US"}
             if proxy_cfg:
                 context_kwargs["proxy"] = proxy_cfg
-                
-            context = await self._browser.new_context(**context_kwargs)
+
+            context = await browser.new_context(**context_kwargs)
 
             page = context.pages[0] if context.pages else await context.new_page()
             timeout_ms = max(int(cf_wait * 1000), 30000)
@@ -299,6 +364,14 @@ class BrowserPool:
             if context is not None:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(asyncio.shield(context.close()), timeout=5.0)
+
+            if self._launch_lock is not None:
+                async with self._launch_lock:
+                    self._active_contexts = max(0, self._active_contexts - 1)
+                    if self._active_contexts == 0 and self._retiring_browsers:
+                        for retiring in list(self._retiring_browsers):
+                            asyncio.create_task(self._close_browser_safely(retiring))
+
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "cloakbrowser: done -> %s | status=%d | cookies=%d | elapsed=%dms",

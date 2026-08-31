@@ -21,6 +21,7 @@ MAX_TABS: int = int(os.getenv("MAX_TABS", "3"))
 MAX_CACHED_DOMAINS: int = int(os.getenv("MAX_CACHED_DOMAINS", "10"))
 BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "true").lower() not in ("false", "0", "no")
 VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() in ("true", "1", "yes")
+BROWSER_MAX_LIFETIME_SEC: int = int(os.getenv("BROWSER_MAX_LIFETIME_SEC", "300"))
 
 
 # Suppress background auto-update checks from cloakbrowser
