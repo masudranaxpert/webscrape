@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpcloak
 
@@ -88,6 +89,7 @@ async def httpcloak_fetch(
     proxy: str | None = None,
     http_version: str | None = None,
     timeout: int = 30,
+    _redirect_depth: int = 0,
 ) -> FetcherResult:
     """Execute stealth HTTP request with full browser wire fingerprint."""
     clean_proxy = _sanitize_proxy(proxy)
@@ -200,6 +202,50 @@ async def httpcloak_fetch(
         }
 
         wall = _is_cf_wall(status, body_text, flat_headers)
+
+        # WHATWG / Scrapy compliant Meta & Header Refresh handling
+        if _redirect_depth < 5 and not wall:
+            refresh_target = None
+            refresh_hdr = next((v for k, v in flat_headers.items() if k.lower() == "refresh"), None)
+            if refresh_hdr and "url=" in refresh_hdr.lower():
+                delay_match = re.search(r"^\s*(\d+)", refresh_hdr)
+                delay = int(delay_match.group(1)) if delay_match else 0
+                if delay <= 2:
+                    match = re.search(r"url\s*=\s*['\"]?([^'\"\s;]+)", refresh_hdr, re.IGNORECASE)
+                    if match:
+                        refresh_target = match.group(1).strip()
+
+            # Fallback check for HTML <meta http-equiv="refresh" ...> tags on small redirect stubs
+            if not refresh_target and len(body_text) < 4096 and "http-equiv" in body_text.lower():
+                meta_match = re.search(
+                    r'<meta[^>]*http-equiv=["\']?refresh["\']?[^>]*content=["\']?\s*(\d+)\s*;\s*url=([^"\'>\s]+)',
+                    body_text,
+                    re.IGNORECASE,
+                )
+                if meta_match and int(meta_match.group(1)) <= 2:
+                    refresh_target = meta_match.group(2).strip()
+
+            if refresh_target:
+                current_url = getattr(resp, "final_url", url) or url
+                redirect_target = urljoin(current_url, refresh_target)
+                if redirect_target != current_url:
+                    logger.info(
+                        "Following Refresh redirect (depth=%d): %s -> %s",
+                        _redirect_depth + 1, current_url, redirect_target,
+                    )
+                    merged_cookies = {**(cookies or {}), **harvested}
+                    return await httpcloak_fetch(
+                        url=redirect_target,
+                        method="GET",
+                        headers=headers,
+                        body=None,
+                        cookies=merged_cookies,
+                        preset=preset,
+                        proxy=proxy,
+                        http_version=http_version,
+                        timeout=timeout,
+                        _redirect_depth=_redirect_depth + 1,
+                    )
 
         if DEBUG:
             logger.debug(
