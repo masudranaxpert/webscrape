@@ -42,6 +42,19 @@ _FIND_CHECKBOX_JS = """() => {
     return {found:true, checked:cb.checked, x:r.x+r.width/2, y:r.y+r.height/2, w:r.width};
 }"""
 
+# Detects an embedded Turnstile widget (not a full-page interstitial) and whether it has issued a token
+_TURNSTILE_STATE_JS = """() => {
+    const widgets = document.querySelectorAll(
+        '.cf-turnstile, iframe[src*="challenges.cloudflare.com"][src*="turnstile"]'
+    );
+    if(!widgets.length) return {present:false, solved:false};
+    const inputs = document.querySelectorAll(
+        'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+    );
+    const solved = inputs.length > 0 && Array.from(inputs).every(i => i.value && i.value.length > 0);
+    return {present:true, solved:solved};
+}"""
+
 _BLOCK_MARKERS = (
     "you have been blocked",
     "sorry, you have been blocked",
@@ -60,6 +73,7 @@ class BrowserResult:
     elapsed_ms: int = 0
     cf_bypass_attempted: bool = True
     user_agent: str | None = None
+    notes: list[str] = dataclasses.field(default_factory=list)
 
 
 def _parse_proxy(proxy: str | None) -> dict[str, str] | None:
@@ -186,6 +200,7 @@ class BrowserPool:
         proxy: str | None = None,
         page_load_state: str = "complete",
         cookies: dict[str, str] | None = None,
+        wait_for_selector: str | None = None,
     ) -> BrowserResult:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
         if self._sem is None:
@@ -194,7 +209,7 @@ class BrowserPool:
             self._launch_lock = asyncio.Lock()
 
         async with self._sem:
-            return await self._run_context(url, cf_wait, proxy, page_load_state, cookies)
+            return await self._run_context(url, cf_wait, proxy, page_load_state, cookies, wait_for_selector)
 
     async def _is_bypassed(self, page: Any) -> bool:
         """Check if challenge wall has cleared."""
@@ -213,6 +228,29 @@ class BrowserPool:
             return True
         except Exception:
             return False
+
+    async def _turnstile_pending(self, page: Any) -> bool:
+        """True when an embedded Turnstile widget exists on the page and has not yet issued a token."""
+        try:
+            state = await page.evaluate(_TURNSTILE_STATE_JS)
+            return bool(state and state.get("present") and not state.get("solved"))
+        except Exception:
+            return False
+
+    async def _has_selector(self, page: Any, selector: str) -> bool:
+        """True when the CSS selector currently matches an element in the live DOM."""
+        try:
+            return await page.query_selector(selector) is not None
+        except Exception:
+            return False
+
+    async def _is_ready(self, page: Any, selector: str | None) -> bool:
+        """Wall cleared, no pending embedded Turnstile, and (if requested) target selector rendered."""
+        if not await self._is_bypassed(page):
+            return False
+        if await self._turnstile_pending(page):
+            return False
+        return selector is None or await self._has_selector(page, selector)
 
     async def _click_turnstile_checkbox(self, page: Any) -> bool:
         """Find Turnstile checkbox inside shadow DOM and click it via native mouse event."""
@@ -249,6 +287,7 @@ class BrowserPool:
         proxy: str | None,
         page_load_state: str,
         cookies: dict[str, str] | None,
+        wait_for_selector: str | None = None,
     ) -> BrowserResult:
         t0 = time.monotonic()
         proxy_cfg = _parse_proxy(proxy)
@@ -265,10 +304,14 @@ class BrowserPool:
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
                 "--lang=en-US,en",
+                "--no-crashpad",
+                "--disable-crash-reporter",
             ]
         }
 
         context = None
+        selector = (wait_for_selector or "").strip() or None
+        notes: list[str] = []
         harvested: dict[str, str] = {}
         body: str = ""
         final_url: str = url
@@ -314,21 +357,30 @@ class BrowserPool:
 
             # Settle period for challenge scripts to execute
             await asyncio.sleep(2.5)
-            # Check for Cloudflare challenge
-            if not await self._is_bypassed(page):
-                logger.info("Cloudflare challenge detected, entering solver loop...")
+            # Check for interstitial wall, embedded Turnstile widget, or a not-yet-rendered target selector
+            wall = not await self._is_bypassed(page)
+            embedded = await self._turnstile_pending(page)
+            missing = selector is not None and not await self._has_selector(page, selector)
+
+            if wall or embedded or missing:
+                reasons = [
+                    r for r, on in (
+                        ("interstitial wall", wall),
+                        ("embedded Turnstile pending", embedded),
+                        (f"selector '{selector}' not rendered", missing),
+                    ) if on
+                ]
+                logger.info("Solver loop entered: %s", ", ".join(reasons))
+                notes.append(f"Solver triggered: {', '.join(reasons)}")
+
                 clicked = False
-                max_retries = max(int(cf_wait / 2), 5)
-
-                for _ in range(max_retries):
-                    if await self._is_bypassed(page):
-                        logger.info("Cloudflare challenge solved successfully")
+                deadline = time.monotonic() + cf_wait
+                while not await self._is_ready(page, selector):
+                    if time.monotonic() >= deadline:
                         break
-
                     if not clicked:
                         clicked = await self._click_turnstile_checkbox(page)
-
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(1.0)
 
                 # If clearance was issued but page hasn't reloaded automatically
                 raw_cookies = await context.cookies()
@@ -342,9 +394,20 @@ class BrowserPool:
                             resp_headers = dict(getattr(resp, "headers", None) or {})
                     await asyncio.sleep(1.0)
 
+                if await self._is_ready(page, selector):
+                    notes.append("Solver finished: page ready")
+                    logger.info("Challenge/widget resolved successfully")
+                else:
+                    if await self._turnstile_pending(page):
+                        notes.append("Embedded Turnstile still unresolved at timeout")
+
             # Final state capture
             bypassed = await self._is_bypassed(page)
             status = 200 if bypassed else (status_code if status_code != 200 else 403)
+            if bypassed and selector and not await self._has_selector(page, selector):
+                status = 408
+                notes.append(f"Timed out waiting for selector '{selector}' (cf_wait={cf_wait}s)")
+                logger.warning("Selector '%s' never appeared on %s", selector, url)
             final_url = page.url or url
 
             with contextlib.suppress(Exception):
@@ -386,6 +449,7 @@ class BrowserPool:
             headers=resp_headers,
             elapsed_ms=elapsed_ms,
             user_agent=user_agent,
+            notes=notes,
         )
 
 

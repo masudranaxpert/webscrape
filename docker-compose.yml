@@ -1,5 +1,6 @@
 services:
   anti:
+    init: true
     build: .
     container_name: anti
     restart: unless-stopped
@@ -8,5 +9,3 @@ services:
     env_file:
       - .env
     shm_size: "512mb"
-    cap_add:
-      - SYS_ADMIN

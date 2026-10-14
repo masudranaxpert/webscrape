@@ -78,8 +78,17 @@ class FetchRequest(BaseModel):
     )
     cf_wait: float = Field(
         default=10.0,
-        description="Maximum seconds to wait for Turnstile challenge resolution.",
+        description="Maximum seconds to wait for Turnstile resolution and for `wait_for_selector` to appear.",
         examples=[10.0],
+    )
+    wait_for_selector: str | None = Field(
+        default=None,
+        description=(
+            "CSS selector that must exist in the live DOM before the page is returned. Forces the browser engine "
+            "if the fast-path HTML lacks it; use for content injected after an embedded Turnstile is solved. "
+            "Returns HTTP 408 if it never appears within `cf_wait`."
+        ),
+        examples=[".server-btn"],
     )
     page_load_state: str = Field(
         default="complete",
@@ -170,7 +179,7 @@ class FetchRequest(BaseModel):
         }
     }
 
-    @field_validator("body", "proxy", "user_agent", "http_version", "selector", mode="before")
+    @field_validator("body", "proxy", "user_agent", "http_version", "selector", "wait_for_selector", mode="before")
     @classmethod
     def clean_dummy_strings(cls, v: Any) -> Any:
         if isinstance(v, str):

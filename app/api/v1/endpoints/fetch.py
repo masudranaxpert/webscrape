@@ -61,6 +61,16 @@ def _extract(html: str, selector: str, attr: str, all_matches: bool) -> list[str
     return results
 
 
+def _selector_present(html: str, selector: str) -> bool:
+    """True when the CSS selector matches at least one node in the HTML."""
+    from selectolax.lexbor import LexborHTMLParser
+
+    try:
+        return LexborHTMLParser(html).css_first(selector) is not None
+    except Exception:
+        return False
+
+
 @router.post(
     "/fetch",
     response_model=FetchResponse,
@@ -136,7 +146,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             timeout=req.timeout,
         )
 
-        if not result.cf_wall:
+        selector_missing = bool(
+            req.wait_for_selector and not result.cf_wall and not _selector_present(result.body, req.wait_for_selector)
+        )
+        if not result.cf_wall and not selector_missing:
             logs.append(f"[HTTP-SUCCESS] Received HTTP {result.status_code} ({result.protocol or 'h2'}) in {result.elapsed_ms}ms (No challenge wall)")
             if result.cookies:
                 merged = {**effective_cookies, **result.cookies}
@@ -181,7 +194,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             )
 
         # Log detailed failure reason on HTTP fast-path
-        if result.error:
+        if selector_missing:
+            logs.append(f"[HTTP-INCOMPLETE] HTTP {result.status_code} lacks selector '{req.wait_for_selector}' (rendered client-side)")
+            logs.append("[ESCALATE] Dynamic content required -> Escalating to Browser Solver")
+        elif result.error:
             logs.append(f"[HTTP-FAIL] Fast-path HTTP connection error: {result.error} ({result.elapsed_ms}ms)")
             logs.append("[ESCALATE] Network/TLS failure on fast-path -> Escalating to Browser Solver")
         elif result.status_code in (403, 503, 429):
@@ -199,8 +215,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     is_solver = True
     wait_event = None
     
-    # Do not coalesce if force_browser=True
-    if not req.force_browser:
+    # Do not coalesce if force_browser=True or a page-specific selector is required
+    if not req.force_browser and not req.wait_for_selector:
         async with _coalesce_lock:
             if domain in _coalesce_events:
                 is_solver = False
@@ -284,8 +300,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             proxy=req.proxy,
             page_load_state=req.page_load_state,
             cookies=effective_cookies,
+            wait_for_selector=req.wait_for_selector,
         )
         
+        logs.extend(f"[SOLVER] {n}" for n in br.notes)
         logs.append(f"[SOLVER] Browser tab finished in {br.elapsed_ms}ms -> Status: {br.status_code} | Cookies harvested: {len(br.cookies)}")
 
         # Cache harvested cookies, session User-Agent, and resolved redirect target

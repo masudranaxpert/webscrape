@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 USER root
 
+# Base packages with tini for zombie process reaping
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
@@ -15,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     xvfb \
+    tini \
     fonts-liberation \
     fonts-noto-color-emoji \
     fonts-ipafont-gothic \
@@ -75,4 +77,4 @@ USER ubuntu
 
 EXPOSE 8000
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
