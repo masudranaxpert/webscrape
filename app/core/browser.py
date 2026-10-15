@@ -333,22 +333,36 @@ class BrowserPool:
         return selector is None or await self._has_selector(page, selector)
 
     async def _click_turnstile_checkbox(self, page: Any) -> bool:
-        """Find Turnstile checkbox inside shadow DOM and click it via native mouse event."""
+        """Find Turnstile checkbox inside shadow DOM or frame and click it via native events."""
         cf_frames = [f for f in page.frames if "challenges.cloudflare" in (f.url or "")]
         for frame in cf_frames:
+            # 1. Direct frame element selectors (CTP / Turnstile labels)
+            for sel in ('[role="checkbox"]', '.ctp-checkbox-label', 'input[type="checkbox"]', '#challenge-stage div', '.cb-i'):
+                with contextlib.suppress(Exception):
+                    el = frame.locator(sel).first
+                    if await el.is_visible(timeout=300):
+                        await el.click(timeout=1000, force=True)
+                        logger.info("Turnstile frame clicked selector: '%s'", sel)
+                        await asyncio.sleep(0.5)
+                        return True
+
+            # 2. Coordinate click via bounding box
             try:
                 frame_el = await frame.frame_element()
                 box = await frame_el.bounding_box()
                 if box and box["width"] >= 20:
-                    click_x = box["x"] + 30
+                    click_x = box["x"] + min(28, box["width"] * 0.15)
                     click_y = box["y"] + box["height"] / 2
                     logger.info("Turnstile checkbox located: clicking at (%.1f, %.1f)", click_x, click_y)
+                    await page.mouse.move(click_x, click_y)
+                    await asyncio.sleep(0.1)
                     await page.mouse.click(click_x, click_y)
                     await asyncio.sleep(0.5)
                     return True
             except Exception as e:
                 logger.debug("Turnstile frame bounding box exception: %s", e)
 
+            # 3. Recursive shadow DOM evaluation
             try:
                 info = await frame.evaluate(_FIND_CHECKBOX_JS)
                 if info and info.get("found") and info.get("w", 0) > 0 and not info.get("checked"):
@@ -357,11 +371,21 @@ class BrowserPool:
                     if box:
                         click_x = box["x"] + info["x"]
                         click_y = box["y"] + info["y"]
+                        await page.mouse.move(click_x, click_y)
+                        await asyncio.sleep(0.1)
                         await page.mouse.click(click_x, click_y)
                         await asyncio.sleep(0.5)
                         return True
             except Exception as e:
                 logger.debug("Turnstile frame evaluate exception: %s", e)
+
+        # 4. Keyboard Tab+Space fallback
+        with contextlib.suppress(Exception):
+            await page.keyboard.press("Tab")
+            await asyncio.sleep(0.1)
+            await page.keyboard.press("Space")
+            logger.debug("Turnstile keyboard Tab+Space attempted")
+
         return False
 
     async def _run_context(
@@ -523,50 +547,72 @@ class BrowserPool:
                 notes.append(f"Solver triggered: {', '.join(reasons)}")
 
                 last_click = 0.0
-                refreshed = False
                 extended = False
                 deadline = time.monotonic() + cf_wait
+                cf_clearance_at: float | None = None
+
                 while not await self._is_ready(page, selector):
                     if time.monotonic() >= deadline:
                         break
-                    # Retry on a throttle: the interstitial and a later embedded widget each need their own click
-                    if time.monotonic() - last_click >= 3.0:
-                        if await self._click_turnstile_checkbox(page):
-                            last_click = time.monotonic()
-                            # Sites consume the token in their own callback within a second: grab it as it appears
-                            for _ in range(25 if await self._is_bypassed(page) else 0):
-                                await asyncio.sleep(0.2)
-                                with contextlib.suppress(Exception):
-                                    tok = (await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])).get("token")
-                                    if tok:
-                                        ts_token = tok
-                                        break
-                    # The wall cleared but a second (embedded) widget appeared: its checkbox takes ~5s to render
-                    # and ~2s to verify, so grant it a fresh window instead of the exhausted wall budget
-                    if not extended and await self._is_bypassed(page) and await self._turnstile_pending(page):
-                        extended = True
-                        deadline = max(deadline, time.monotonic() + 20.0)
-                        notes.append("Embedded widget after wall -> solve window extended")
-                    # Clearance issued but the wall page did not navigate on its own: reload once so the
-                    # real page (and any embedded widget) can load inside the remaining solve window
-                    if not refreshed and not await self._is_bypassed(page):
-                        ck = {c["name"] for c in await context.cookies()}
-                        if "cf_clearance" in ck:
-                            refreshed = True
-                            logger.info("Clearance cookie present mid-solve, reloading page...")
+
+                    # 1. Real-time cf_clearance detection
+                    raw_cookies = await context.cookies()
+                    has_domain_clearance = any(
+                        c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10
+                        for c in raw_cookies
+                    )
+
+                    if has_domain_clearance:
+                        if cf_clearance_at is None:
+                            cf_clearance_at = time.monotonic()
+                            logger.info("cf_clearance cookie obtained during solve loop")
+                            notes.append("cf_clearance obtained")
+
+                        # If Cloudflare hasn't auto-redirected within 2.0s, reload to target URL
+                        title = (await page.title()).lower()
+                        is_challenge = any(w in title for w in ("just a moment", "verify you are human", "attention required", "security check"))
+                        if is_challenge and (time.monotonic() - cf_clearance_at >= 2.0):
+                            logger.info("Clearance present but still on challenge page -> navigating to destination URL")
+                            notes.append("Navigating to destination with fresh clearance")
                             with contextlib.suppress(Exception):
                                 resp = await page.goto(url, wait_until=load_state, timeout=15000)
                                 if resp is not None and getattr(resp, "status", None):
                                     status_code = resp.status
                                     resp_headers = dict(getattr(resp, "headers", None) or {})
                             await asyncio.sleep(1.0)
-                    await asyncio.sleep(1.0)
+                            if await self._is_bypassed(page):
+                                logger.info("Page successfully cleared after clearance reload!")
+                                break
 
-                # If clearance was issued but page hasn't reloaded automatically
+                    # 2. Throttled interactive click attempt
+                    if time.monotonic() - last_click >= 2.5:
+                        if await self._click_turnstile_checkbox(page):
+                            last_click = time.monotonic()
+                            for _ in range(15 if await self._is_bypassed(page) else 0):
+                                await asyncio.sleep(0.2)
+                                with contextlib.suppress(Exception):
+                                    tok = (await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])).get("token")
+                                    if tok:
+                                        ts_token = tok
+                                        break
+
+                    # 3. Handle embedded widget after interstitial wall
+                    if not extended and await self._is_bypassed(page) and await self._turnstile_pending(page):
+                        extended = True
+                        deadline = max(deadline, time.monotonic() + 20.0)
+                        notes.append("Embedded widget after wall -> solve window extended")
+
+                    await asyncio.sleep(0.8)
+
+                # Post-loop clearance navigation check
                 raw_cookies = await context.cookies()
-                cookie_map = {c["name"]: c["value"] for c in raw_cookies}
-                if not await self._is_bypassed(page) and "cf_clearance" in cookie_map:
-                    logger.info("Clearance cookie present, refreshing page...")
+                has_domain_clearance = any(
+                    c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10
+                    for c in raw_cookies
+                )
+                if has_domain_clearance and not await self._is_bypassed(page):
+                    logger.info("Clearance present at loop exit -> executing reload to target URL")
+                    notes.append("Executing reload with clearance cookie")
                     with contextlib.suppress(Exception):
                         resp = await page.goto(url, wait_until=load_state, timeout=15000)
                         if resp is not None and getattr(resp, "status", None):
@@ -597,6 +643,18 @@ class BrowserPool:
 
             # Final state capture
             bypassed = await self._is_bypassed(page)
+            if not bypassed:
+                raw_cookies = await context.cookies()
+                if any(c.get("name") == "cf_clearance" for c in raw_cookies):
+                    logger.info("cf_clearance exists; executing recovery reload to target...")
+                    with contextlib.suppress(Exception):
+                        resp = await page.goto(url, wait_until="domcontentloaded", timeout=12000)
+                        if resp is not None and getattr(resp, "status", None):
+                            status_code = resp.status
+                            resp_headers = dict(getattr(resp, "headers", None) or {})
+                    await asyncio.sleep(1.0)
+                    bypassed = await self._is_bypassed(page)
+
             if bypassed and last_doc:
                 status_code = last_doc["status"]
                 resp_headers = last_doc["headers"]

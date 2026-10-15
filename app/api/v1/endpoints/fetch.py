@@ -400,8 +400,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append(f"[SOLVER] Browser tab finished in {br.elapsed_ms}ms -> Status: {br.status_code} | Cookies harvested: {len(br.cookies)}")
 
         # Cache harvested cookies, session User-Agent, and resolved redirect target
-        # Only a successful solve earns reusable clearance: a 403/timeout leaves half-baked cookies that poison the cache
-        if br.cookies and br.status_code < 400:
+        # Save whenever clearance is acquired or status is success
+        if br.cookies and (br.status_code < 400 or "cf_clearance" in br.cookies):
             store.set(
                 domain,
                 br.cookies,

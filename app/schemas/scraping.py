@@ -85,9 +85,9 @@ class FetchRequest(BaseModel):
         examples=[False],
     )
     cf_wait: float = Field(
-        default=10.0,
+        default=30.0,
         description="Maximum seconds to wait for Turnstile resolution and for `wait_for_selector` to appear.",
-        examples=[10.0],
+        examples=[30.0],
     )
     wait_for_selector: str | None = Field(
         default=None,
@@ -165,9 +165,9 @@ class FetchRequest(BaseModel):
         examples=[False],
     )
     auto_token: bool = Field(
-        default=True,
+        default=False,
         description="Escalate to the browser and capture the token automatically when the page embeds a Turnstile widget. Set false to keep the fast HTTP path.",
-        examples=[True],
+        examples=[False],
     )
     token_field_names: list[str] | None = Field(
         default=None,
