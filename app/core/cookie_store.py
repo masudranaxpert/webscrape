@@ -82,11 +82,29 @@ class CookieStore:
         self._store: OrderedDict[str, dict] = OrderedDict()
 
     @staticmethod
-    def domain_of(url: str) -> str:
-        """Extract root domain (eTLD+1) from URL."""
+    def host_of(url: str) -> str:
+        """Extract exact lowercase hostname from URL preserving subdomains."""
         host = urlparse(url).hostname or url
-        parts = host.split(".")
+        return host.strip().lower()
+
+    @staticmethod
+    def root_domain_of(host: str) -> str:
+        """Extract root domain (eTLD+1) for shared wildcard cookies."""
+        parts = host.strip().lower().split(".")
         return ".".join(parts[-2:]) if len(parts) > 1 else host
+
+    @staticmethod
+    def domain_of(url: str) -> str:
+        """Return full hostname for precise cookie scoping."""
+        return CookieStore.host_of(url)
+
+    @staticmethod
+    def cache_key(host: str, session_id: str | None = None) -> str:
+        """Generate isolated storage key: scopes by session_id when provided."""
+        clean_host = host.strip().lower()
+        if session_id and str(session_id).strip():
+            return f"{clean_host}#{str(session_id).strip()}"
+        return clean_host
 
     @staticmethod
     def filter_and_limit(
@@ -142,34 +160,56 @@ class CookieStore:
         is_reduced = was_truncated or (len(allowed) < total_input_count)
         return allowed, is_reduced
 
-    def get(self, domain: str) -> dict[str, str] | None:
-        """Get valid cookies for a domain, evicting if expired."""
-        entry = self._store.get(domain)
-        if entry is None:
-            return None
-        if time.time() > entry["expires_at"]:
-            del self._store[domain]
-            return None
-        self._store.move_to_end(domain)
-        return entry["cookies"]
+    def get(self, key: str) -> dict[str, str] | None:
+        """Get valid cookies for a key (host or host#session_id), evicting if expired."""
+        entry = self._store.get(key)
+        if entry is not None:
+            if time.time() > entry["expires_at"]:
+                del self._store[key]
+                return None
+            self._store.move_to_end(key)
+            return dict(entry["cookies"])
 
-    def get_ua(self, domain: str) -> str | None:
-        """Get cached user_agent for a domain if still valid."""
-        entry = self._store.get(domain)
+        # Fallback: if querying a subdomain or session without stored cookies,
+        # inherit root domain's wildcard Cloudflare clearance cookies if active
+        host_part = key.split("#")[0]
+        root = self.root_domain_of(host_part)
+        if root != host_part and root in self._store:
+            root_entry = self._store[root]
+            if time.time() <= root_entry["expires_at"]:
+                cf_only = {
+                    k: v for k, v in root_entry["cookies"].items()
+                    if k.lower().startswith(("cf_", "__cf"))
+                }
+                if cf_only:
+                    return cf_only
+        return None
+
+    def get_ua(self, key: str) -> str | None:
+        """Get cached user_agent for a key if still valid."""
+        entry = self._store.get(key)
         if entry is None or time.time() > entry["expires_at"]:
+            host_part = key.split("#")[0]
+            root = self.root_domain_of(host_part)
+            if root != host_part and root in self._store and time.time() <= self._store[root]["expires_at"]:
+                return self._store[root].get("user_agent")
             return None
         return entry.get("user_agent")
 
-    def get_identity(self, domain: str) -> dict[str, str | None]:
-        """Identity (UA, proxy, preset) the cached cookies were earned with; cf_clearance is bound to it."""
-        entry = self._store.get(domain)
+    def get_identity(self, key: str) -> dict[str, str | None]:
+        """Identity (UA, proxy, preset) the cached cookies were earned with."""
+        entry = self._store.get(key)
         if entry is None or time.time() > entry["expires_at"]:
+            host_part = key.split("#")[0]
+            root = self.root_domain_of(host_part)
+            if root != host_part and root in self._store and time.time() <= self._store[root]["expires_at"]:
+                return {k: self._store[root].get(k) for k in ("user_agent", "proxy", "preset")}
             return {"user_agent": None, "proxy": None, "preset": None}
         return {k: entry.get(k) for k in ("user_agent", "proxy", "preset")}
 
     def set(
         self,
-        domain: str,
+        key: str,
         cookies: dict[str, str],
         ua: str | None = None,
         proxy: str | None = None,
@@ -179,7 +219,7 @@ class CookieStore:
         inject_cookies: dict[str, str] | None = None,
         max_cookies: int = 35,
     ) -> None:
-        """Set or update cookies and user-agent for a domain, applying allowlist and limits."""
+        """Set or update cookies and user-agent for a cache key, applying allowlist and limits."""
         clean_cookies, _ = self.filter_and_limit(
             cookies=cookies,
             allowlist=allowlist,
@@ -187,13 +227,13 @@ class CookieStore:
             max_cookies=max_cookies,
         )
         existing_ua = None
-        if domain in self._store:
-            existing_ua = self._store[domain].get("user_agent")
-            self._store.move_to_end(domain)
+        if key in self._store:
+            existing_ua = self._store[key].get("user_agent")
+            self._store.move_to_end(key)
         elif len(self._store) >= self._max:
             evicted, _ = self._store.popitem(last=False)
-            logger.debug("cookie_store: evicted LRU domain %s", evicted)
-        self._store[domain] = {
+            logger.debug("cookie_store: evicted LRU entry %s", evicted)
+        self._store[key] = {
             "cookies": clean_cookies,
             "user_agent": ua or existing_ua,
             "proxy": proxy,
@@ -201,9 +241,25 @@ class CookieStore:
             "expires_at": time.time() + ttl,
         }
 
-    def invalidate(self, domain: str) -> bool:
-        """Remove a domain from cache."""
-        return self._store.pop(domain, None) is not None
+        # Also store root domain wildcard cf_ clearance if present
+        host_part = key.split("#")[0]
+        root = self.root_domain_of(host_part)
+        cf_cookies = {k: v for k, v in clean_cookies.items() if k.lower().startswith(("cf_", "__cf"))}
+        if cf_cookies and root != key:
+            if root not in self._store:
+                self._store[root] = {
+                    "cookies": cf_cookies,
+                    "user_agent": ua or existing_ua,
+                    "proxy": proxy,
+                    "preset": preset,
+                    "expires_at": time.time() + ttl,
+                }
+            else:
+                self._store[root]["cookies"].update(cf_cookies)
+
+    def invalidate(self, key: str) -> bool:
+        """Remove a key from cache."""
+        return self._store.pop(key, None) is not None
 
     def all_domains(self) -> dict[str, dict]:
         """Return non-expired domain entries with remaining TTL."""

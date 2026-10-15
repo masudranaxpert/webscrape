@@ -369,8 +369,15 @@
                   <td><span class="param-name">cf_wait</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">float</span></td>
-                  <td><span class="param-default">10.0</span></td>
-                  <td>Maximum wait seconds for Turnstile settlement in browser.</td>
+                  <td><span class="param-default">20.0</span></td>
+                  <td>Maximum wait seconds for Turnstile settlement in browser (early-exits immediately upon resolution).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">session_id</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Isolated session identifier (e.g. <code>task-dl-1</code>). Prevents cookie/session collisions between concurrent multi-step scraping tasks while sharing root-domain Cloudflare clearance.</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">wait_for_selector</span></td>
@@ -390,8 +397,8 @@
                   <td><span class="param-name">cookie_ttl</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">integer</span></td>
-                  <td><span class="param-default">3600</span></td>
-                  <td>Cookie cache retention duration in seconds.</td>
+                  <td><span class="param-default">86400</span></td>
+                  <td>Cookie cache retention duration in seconds (default 24 hours).</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">inject_cookies</span></td>
@@ -427,7 +434,7 @@
                   <td><span class="param-name">auto_token</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">boolean</span></td>
-                  <td><span class="param-default">true</span></td>
+                  <td><span class="param-default">false</span></td>
                   <td>Automatically escalate to the browser and capture token when the page embeds a Turnstile widget. Set <code>false</code> to keep fast HTTP path.</td>
                 </tr>
                 <tr>
@@ -608,47 +615,34 @@
           <!-- Cookies Guide -->
           <div class="guide-pane" id="guideCookies">
             <p>
-              The service includes a built-in <strong>Domain-Aware LRU In-Memory Cookie Store with Pattern Allowlist
-                Filtering & Header Overflow Guards</strong>. When a Cloudflare Turnstile challenge is solved, clearance
-              tokens and sessions are stored automatically. Subsequent requests reuse these cookies to hit the fast-path
-              (300ms) without opening a browser.
+              The service includes a built-in <strong>Subdomain-Aware LRU In-Memory Cookie Store with Session Isolation & Pattern Allowlist Filtering</strong>.
+              When a Cloudflare Turnstile challenge is solved, clearance tokens and sessions are stored automatically. Subsequent requests reuse these cookies to hit the fast-path (300ms) without opening a browser.
             </p>
             <ul>
-              <li><strong><code>cookie_allowlist</code></strong>: Array of allowed cookie names or glob/regex wildcard
-                patterns (e.g. <code>["cf_*", "__cf*", "*session*", "movielinkbd_vote_*", "PHPSESSID"]</code>). Only
-                matching cookies are stored and sent; ephemeral post-view counters, Google Analytics (<code>_ga</code>),
-                and tracking noise are automatically pruned.</li>
-              <li><strong><code>cookie_limit</code></strong>: Upper bound on the number of cookies sent in outbound
-                request headers (default <code>35</code>, 3.5 KB max). If crawling many subpages accumulates excess
-                cookies, the engine safely truncates older non-essential cookies and logs an informative notification,
-                preventing OpenResty/Nginx <code>400 Request Header Or Cookie Too Large</code> errors.</li>
-              <li><strong><code>inject_cookies</code></strong>: Inject custom session cookies (e.g. logged-in user
-                tokens) into both the HTTP engine and the browser context before navigation. Injected cookies always
-                bypass the allowlist filter and are preserved.</li>
-              <li><strong><code>cookie_ttl</code></strong>: Controls how many seconds harvested cookies stay valid in
-                memory (default <code>3600</code> = 1 hour).</li>
-              <li><strong>LRU Eviction</strong>: Stores up to 10 distinct domains concurrently in memory. Least recently
-                used domain entries are gracefully evicted when capacity is reached.</li>
+              <li><strong>Subdomain Isolation & Wildcard Fallback</strong>: Cookies are stored per exact hostname (e.g. <code>sub.target-site.example</code>) instead of collapsing into the root domain. This keeps host-only session cookies (e.g. <code>ci_session</code>, auth tokens) isolated across subdomains. Cloudflare bypass tokens (<code>cf_clearance</code>) automatically fall back to the root domain so sibling subdomains reuse clearance instantly without re-solving challenges.</li>
+              <li><strong><code>session_id</code></strong>: Pass an isolated session identifier (e.g. <code>"task-dl-1"</code>) for concurrent multi-step scraping tasks. Parallel tasks on the same host run in separate cookie namespaces without race conditions or session clobbering.</li>
+              <li><strong><code>cookie_allowlist</code></strong>: Array of allowed cookie names or glob/regex wildcard patterns (e.g. <code>["cf_*", "__cf*", "*session*", "PHPSESSID"]</code>). Non-essential tracking cookies and analytics are pruned automatically.</li>
+              <li><strong><code>cookie_limit</code></strong>: Upper bound on the number of cookies sent in request headers (default <code>35</code>, 3.5 KB max) to prevent HTTP 400 header overflow.</li>
+              <li><strong><code>inject_cookies</code></strong>: Inject custom session cookies before navigation. Injected cookies always bypass allowlist filters and take precedence.</li>
+              <li><strong><code>cookie_ttl</code></strong>: Cache duration in seconds (default <code>86400</code> = 24 hours).</li>
+              <li><strong>Capacity & LRU Eviction</strong>: Stores up to 64 distinct active hosts/sessions concurrently in memory.</li>
             </ul>
 
             <div class="code-block-wrapper">
               <div class="code-block-header">
-                <span>Example: Cookie Allowlist, Limits & Custom Injection</span>
+                <span>Example: Isolated Session & Cookie Allowlist</span>
                 <button class="btn-copy" onclick="copyCode(this)">Copy</button>
               </div>
               <pre><code>{
-  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/protected-series"</span>,
+  <span class="json-key">"url"</span>: <span class="json-string">"https://new5.example.com/protected-page"</span>,
+  <span class="json-key">"session_id"</span>: <span class="json-string">"task-dl-42"</span>,
   <span class="json-key">"cookie_allowlist"</span>: [
     <span class="json-string">"cf_*"</span>,
     <span class="json-string">"__cf*"</span>,
     <span class="json-string">"*session*"</span>,
     <span class="json-string">"PHPSESSID"</span>
   ],
-  <span class="json-key">"cookie_limit"</span>: <span class="json-number">25</span>,
-  <span class="json-key">"inject_cookies"</span>: {
-    <span class="json-key">"session_auth"</span>: <span class="json-string">"d7cacaacbab36dcb309df17425793931"</span>,
-    <span class="json-key">"user_id"</span>: <span class="json-string">"48291"</span>
-  }
+  <span class="json-key">"cookie_limit"</span>: <span class="json-number">25</span>
 }</code></pre>
             </div>
           </div>
@@ -668,7 +662,7 @@
                 browser is never started; a 403 or challenge page is returned as-is. Use this for POST/API calls where a
                 403 comes from the site itself (e.g. an invalid token), not from Cloudflare.</li>
               <li><strong><code>cf_wait</code></strong>: Maximum duration in seconds to wait for Cloudflare Turnstile to
-                solve and redirect (default <code>10.0</code>s).</li>
+                solve and redirect (default <code>20.0</code>s). Early-exits immediately as soon as the challenge is solved.</li>
               <li><strong>Dynamic Redirect Cache</strong>: When an origin domain redirects to a separate domain
                 post-challenge (e.g. <code>.com</code> → <code>.net</code>), the API caches the destination so
                 subsequent requests hit the final URL directly on the fast-path.</li>

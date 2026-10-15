@@ -85,9 +85,9 @@ class FetchRequest(BaseModel):
         examples=[False],
     )
     cf_wait: float = Field(
-        default=30.0,
+        default=20.0,
         description="Maximum seconds to wait for Turnstile resolution and for `wait_for_selector` to appear.",
-        examples=[30.0],
+        examples=[20.0],
     )
     wait_for_selector: str | None = Field(
         default=None,
@@ -137,6 +137,11 @@ class FetchRequest(BaseModel):
     )
 
     # Cookie settings
+    session_id: str | None = Field(
+        default=None,
+        description="Isolated session identifier to prevent cookie collisions between concurrent scraping flows.",
+        examples=["task-dl-1"],
+    )
     cookie_ttl: int = Field(
         default=86400,
         description="Cache duration in seconds for harvested cookies (Default: 86400s / 24 hours).",

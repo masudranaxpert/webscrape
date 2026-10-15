@@ -28,25 +28,25 @@ _coalesce_events: dict[str, asyncio.Event] = {}
 _coalesce_lock: asyncio.Lock = asyncio.Lock()
 
 
-def _cache_redirect(domain: str, url: str) -> None:
+def _cache_redirect(host: str, url: str) -> None:
     """Store redirect hostname with LRU eviction to prevent 403 loops on naked domains."""
     parsed_final = urlparse(url)
     if (
         parsed_final.hostname
-        and parsed_final.hostname != domain
-        and store.domain_of(parsed_final.hostname) == domain
+        and parsed_final.hostname != host
+        and store.root_domain_of(parsed_final.hostname) == store.root_domain_of(host)
     ):
-        if domain in _redirect_cache:
-            _redirect_cache.move_to_end(domain)
+        if host in _redirect_cache:
+            _redirect_cache.move_to_end(host)
         elif len(_redirect_cache) >= _MAX_REDIRECTS:
             _redirect_cache.popitem(last=False)
-        _redirect_cache[domain] = parsed_final.netloc
+        _redirect_cache[host] = parsed_final.netloc
 
 
-def clear_redirect_cache(domain: str | None = None) -> None:
-    """Evict redirect target for a specific domain, or clear entirely if None."""
-    if domain:
-        _redirect_cache.pop(domain, None)
+def clear_redirect_cache(host: str | None = None) -> None:
+    """Evict redirect target for a specific host, or clear entirely if None."""
+    if host:
+        _redirect_cache.pop(host, None)
     else:
         _redirect_cache.clear()
 
@@ -106,9 +106,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     logs: list[str] = []
     t_start = time.monotonic()
 
-    domain = store.domain_of(req.url)
-    cached_cookies = store.get(domain) or {}
-    ident = store.get_identity(domain)
+    host = store.host_of(req.url)
+    cache_key = store.cache_key(host, req.session_id)
+    cached_cookies = store.get(cache_key) or {}
+    ident = store.get_identity(cache_key)
     cached_ua = ident["user_agent"]
 
     # cf_clearance is bound to the UA, egress IP and TLS fingerprint that earned it: replay with the same identity
@@ -135,10 +136,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append(logs_pre)
     logs.append(f"[INIT] Request initialized for target: {req.url} (Method: {req.method})")
 
+    session_label = f" (Session: {req.session_id})" if req.session_id else ""
     if cache_hit:
-        logs.append(f"[CACHE] Found {len(cached_cookies)} pre-cached session cookies for domain '{domain}'")
+        logs.append(f"[CACHE] Found {len(cached_cookies)} pre-cached session cookies for host '{host}'{session_label}")
     else:
-        logs.append(f"[CACHE] Cache miss for domain '{domain}' (No prior session tokens)")
+        logs.append(f"[CACHE] Cache miss for host '{host}'{session_label} (No prior session tokens)")
 
     if req.cookie_allowlist:
         logs.append(f"[ALLOWLIST] Applied custom cookie allowlist filter ({len(req.cookie_allowlist)} patterns): {req.cookie_allowlist}")
@@ -170,8 +172,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     force_browser = req.force_browser or req.capture_token or bool(req.token_field_names) or bool(req.click_selector)
     if not force_browser:
         target_url = req.url
-        if effective_cookies and domain in _redirect_cache:
-            cached_netloc = _redirect_cache[domain]
+        if effective_cookies and host in _redirect_cache:
+            cached_netloc = _redirect_cache[host]
             parsed_req = urlparse(req.url)
             if parsed_req.netloc != cached_netloc:
                 target_url = parsed_req._replace(netloc=cached_netloc).geturl()
@@ -229,7 +231,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             if result.cookies:
                 merged = {**effective_cookies, **result.cookies}
                 store.set(
-                    domain,
+                    cache_key,
                     merged,
                     ua=effective_ua,
                     proxy=req.proxy,
@@ -239,8 +241,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                     inject_cookies=req.inject_cookies,
                     max_cookies=req.cookie_limit,
                 )
-                cached_count = len(store.get(domain) or {})
-                logs.append(f"[CACHE] Filtered & stored {cached_count} session cookies for '{domain}' (TTL: {req.cookie_ttl}s)")
+                cached_count = len(store.get(cache_key) or {})
+                logs.append(f"[CACHE] Filtered & stored {cached_count} session cookies for '{cache_key}' (TTL: {req.cookie_ttl}s)")
 
             extracted = _extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
             if req.selector:
@@ -293,11 +295,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 k: v for k, v in cached_cookies.items()
                 if not (k.startswith("cf_") or k.startswith("__cf"))
             }
-            store.invalidate(domain)
+            store.invalidate(cache_key)
             effective_cookies = {**app_cookies, **req.inject_cookies}
             logs.append("[CACHE] Cached clearance rejected by Cloudflare -> invalidated clearance, preserved application session cookies")
 
-        logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", domain, result.status_code)
+        logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", host, result.status_code)
     else:
         logs.append("[FORCE] browser forced (force_browser/capture_token) set in request -> Bypassing fast-path, routing directly to Browser Solver")
 
@@ -305,31 +307,31 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     is_solver = True
     wait_event = None
     
-    # Do not coalesce if force_browser=True or a page-specific selector is required
-    if not force_browser and not auto_capture and not req.wait_for_selector:
+    # Do not coalesce if force_browser=True, page-specific selector is required, or isolated session_id is provided
+    if not force_browser and not auto_capture and not req.wait_for_selector and not req.session_id:
         async with _coalesce_lock:
-            if domain in _coalesce_events:
+            if host in _coalesce_events:
                 is_solver = False
-                wait_event = _coalesce_events[domain]
+                wait_event = _coalesce_events[host]
             else:
                 wait_event = asyncio.Event()
-                _coalesce_events[domain] = wait_event
+                _coalesce_events[host] = wait_event
 
     if not is_solver and wait_event:
-        logs.append(f"[COALESCE] Waiting for concurrent browser solver to finish for '{domain}'...")
+        logs.append(f"[COALESCE] Waiting for concurrent browser solver to finish for '{host}'...")
         await wait_event.wait()
         logs.append("[COALESCE] Solver finished! Retrying fast-path HTTP engine...")
         
-        new_cached = store.get(domain) or {}
-        new_ua = req.user_agent or store.get_ua(domain)
+        new_cached = store.get(cache_key) or {}
+        new_ua = req.user_agent or store.get_ua(cache_key)
         retry_cookies = {**new_cached, **req.inject_cookies}
         retry_headers = {**req.headers}
         if new_ua and not any(k.lower() == "user-agent" for k in retry_headers):
             retry_headers["user-agent"] = new_ua
             
         retry_target_url = req.url
-        if retry_cookies and domain in _redirect_cache:
-            cached_netloc = _redirect_cache[domain]
+        if retry_cookies and host in _redirect_cache:
+            cached_netloc = _redirect_cache[host]
             parsed_req = urlparse(req.url)
             if parsed_req.netloc != cached_netloc:
                 retry_target_url = parsed_req._replace(netloc=cached_netloc).geturl()
@@ -403,7 +405,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         # Save whenever clearance is acquired or status is success
         if br.cookies and (br.status_code < 400 or "cf_clearance" in br.cookies):
             store.set(
-                domain,
+                cache_key,
                 br.cookies,
                 ua=br.user_agent,
                 proxy=req.proxy,
@@ -413,11 +415,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 inject_cookies=req.inject_cookies,
                 max_cookies=req.cookie_limit,
             )
-            cached_count = len(store.get(domain) or {})
-            logs.append(f"[CACHE] Saved {cached_count} harvested cookies and User-Agent for '{domain}'")
+            cached_count = len(store.get(cache_key) or {})
+            logs.append(f"[CACHE] Saved {cached_count} harvested cookies and User-Agent for '{cache_key}'")
             if br.final_url and br.final_url != req.url:
-                _cache_redirect(domain, br.final_url)
-                logs.append(f"[REDIRECT] Cached post-challenge destination: {domain} -> {br.final_url}")
+                _cache_redirect(host, br.final_url)
+                logs.append(f"[REDIRECT] Cached post-challenge destination: {host} -> {br.final_url}")
         extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
         if req.selector:
             logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")
@@ -475,9 +477,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         )
 
     finally:
-        # Wake up any requests waiting on this domain's browser solve
+        # Wake up any requests waiting on this host's browser solve
         if is_solver and wait_event:
             async with _coalesce_lock:
-                if domain in _coalesce_events:
-                    _coalesce_events[domain].set()
-                    del _coalesce_events[domain]
+                if host in _coalesce_events:
+                    _coalesce_events[host].set()
+                    del _coalesce_events[host]
