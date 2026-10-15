@@ -98,6 +98,11 @@ class FetchRequest(BaseModel):
         ),
         examples=[".server-btn"],
     )
+    click_selector: str | None = Field(
+        default=None,
+        description="CSS selector to click once the page/Turnstile is ready before capturing DOM. Implies force_browser.",
+        examples=["#go-btn"],
+    )
     page_load_state: str = Field(
         default="complete",
         description="Browser page load strategy ('complete' or 'interactive').",

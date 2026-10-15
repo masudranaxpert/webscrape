@@ -234,6 +234,7 @@ class BrowserPool:
         wait_for_selector: str | None = None,
         capture_token: bool = False,
         token_field_names: list[str] | None = None,
+        click_selector: str | None = None,
     ) -> BrowserResult:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
         if self._sem is None:
@@ -242,7 +243,17 @@ class BrowserPool:
             self._launch_lock = asyncio.Lock()
 
         async with self._sem:
-            return await self._run_context(url, cf_wait, proxy, page_load_state, cookies, wait_for_selector, capture_token, token_field_names)
+            return await self._run_context(
+                url,
+                cf_wait,
+                proxy,
+                page_load_state,
+                cookies,
+                wait_for_selector,
+                capture_token,
+                token_field_names,
+                click_selector,
+            )
 
     async def _is_bypassed(self, page: Any) -> bool:
         """Check if challenge wall has cleared."""
@@ -323,6 +334,7 @@ class BrowserPool:
         wait_for_selector: str | None = None,
         capture_token: bool = False,
         token_field_names: list[str] | None = None,
+        click_selector: str | None = None,
     ) -> BrowserResult:
         t0 = time.monotonic()
         proxy_cfg = _parse_proxy(proxy)
@@ -610,8 +622,20 @@ class BrowserPool:
             if submissions:
                 notes.append(f"Site submitted the token itself -> {len(submissions)} submission(s) captured in token_submissions")
 
+            if click_selector:
+                with contextlib.suppress(Exception):
+                    logger.info("Waiting for click_selector '%s'...", click_selector)
+                    btn = await page.wait_for_selector(click_selector, state="visible", timeout=10000)
+                    if btn:
+                        await page.click(click_selector)
+                        notes.append(f"Clicked selector: {click_selector}")
+                        await asyncio.sleep(2.0)
+                        with contextlib.suppress(Exception):
+                            await page.wait_for_load_state(load_state, timeout=10000)
+
             with contextlib.suppress(Exception):
                 body = await page.content()
+                final_url = page.url or final_url
 
             raw_cookies = await context.cookies()
             harvested = {c["name"]: c["value"] for c in raw_cookies}

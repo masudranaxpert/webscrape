@@ -167,7 +167,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     # 1. Fast path: Direct fingerprint HTTP request
     auto_capture = False
-    force_browser = req.force_browser or req.capture_token or bool(req.token_field_names)
+    force_browser = req.force_browser or req.capture_token or bool(req.token_field_names) or bool(req.click_selector)
     if not force_browser:
         target_url = req.url
         if effective_cookies and domain in _redirect_cache:
@@ -393,6 +393,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             wait_for_selector=req.wait_for_selector,
             capture_token=req.capture_token or bool(req.token_field_names) or auto_capture,
             token_field_names=req.token_field_names,
+            click_selector=req.click_selector,
         )
         
         logs.extend(f"[SOLVER] {n}" for n in br.notes)
