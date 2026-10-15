@@ -629,6 +629,9 @@
               <li><strong><code>force_browser</code></strong>: Set to <code>true</code> to skip the HTTP fast-path and
                 drive Chrome directly. Use this for complex Single Page Apps (SPA) that require client-side JavaScript
                 rendering.</li>
+              <li><strong><code>force_http</code></strong>: Set to <code>true</code> to stay on the HTTP engine only. The
+                browser is never started; a 403 or challenge page is returned as-is. Use this for POST/API calls where a
+                403 comes from the site itself (e.g. an invalid token), not from Cloudflare.</li>
               <li><strong><code>cf_wait</code></strong>: Maximum duration in seconds to wait for Cloudflare Turnstile to
                 solve and redirect (default <code>10.0</code>s).</li>
               <li><strong>Dynamic Redirect Cache</strong>: When an origin domain redirects to a separate domain
