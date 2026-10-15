@@ -603,9 +603,8 @@ class BrowserPool:
             }
             status = 200 if bypassed else (status_code if status_code != 200 else 403)
             if bypassed and selector and not await self._has_selector(page, selector):
-                status = 408
                 notes.append(f"Timed out waiting for selector '{selector}' (cf_wait={cf_wait}s)")
-                logger.warning("Selector '%s' never appeared on %s", selector, url)
+                logger.warning("Selector '%s' never appeared on %s within cf_wait budget", selector, url)
             final_url = page.url or url
 
             widget_present = False
