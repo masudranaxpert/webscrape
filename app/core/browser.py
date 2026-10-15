@@ -386,6 +386,7 @@ class BrowserPool:
         launch_kwargs: dict[str, Any] = {
             "headless": self._headless,
             "humanize": True,
+            "human_preset": "careful",
             "_suppress_maximize": True,
             "args": [
                 FAKE_SHADOW_ARG,
@@ -396,8 +397,11 @@ class BrowserPool:
                 "--no-crashpad",
                 "--disable-crash-reporter",
                 "--window-size=1280,720",
+                "--fingerprint-allow-3p-cookies",
             ],
         }
+        if proxy_cfg:
+            launch_kwargs["geoip"] = True
 
         context = None
         selector = (wait_for_selector or "").strip() or None

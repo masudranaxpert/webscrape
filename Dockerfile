@@ -16,11 +16,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     xvfb \
+    xdotool \
+    openbox \
     tini \
     fonts-liberation \
     fonts-noto-color-emoji \
     fonts-ipafont-gothic \
     fonts-wqy-zenhei \
+    fonts-unifont \
+    fonts-freefont-ttf \
+    fonts-tlwg-loma-otf \
+    fonts-urw-base35 \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -46,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy application files (cache-bust ensures fresh app build on changes)
-ENV APP_BUILD_EPOCH="20261015_2305"
+ENV APP_BUILD_EPOCH="20261015_2317"
 COPY . .
 
 RUN chmod +x /app/docker-entrypoint.sh && \
