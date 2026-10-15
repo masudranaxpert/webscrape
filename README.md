@@ -79,10 +79,20 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | --- | --- | --- |
 | `API_KEY` | | Required for `/fetch` and `/cookies` |
 | `PORT` | `8000` | |
-| `MAX_TABS` | `3` | Concurrent browser tabs |
+| `MAX_TABS` | `5` | Concurrent browser tabs inside the shared engine |
 | `BROWSER_HEADLESS` | `true` | |
+| `CLOAKBROWSER_LICENSE_KEY` | | Optional: unlocks latest Chromium build (v154+). Get a free key at [cloakbrowser.dev/free](https://cloakbrowser.dev/free). Without a key, falls back to v146. |
 | `DEFAULT_COOKIE_TTL` | `86400` | Seconds |
 | `MAX_CACHED_DOMAINS` | `10` | |
+
+### CloakBrowser Engine & License
+
+Anti uses [CloakBrowser](https://github.com/CloakHQ/cloakbrowser) for stealth Chromium automation with 87 C++ engine-level patches (WebGL, Canvas, Audio, Navigator, CDP flags) and `humanize=True` natural input simulation:
+
+- **Without a license key:** CloakBrowser automatically downloads and runs the unauthenticated free binary (Chromium v146).
+- **With a license key (`CLOAKBROWSER_LICENSE_KEY`):** CloakBrowser authenticates with the CDN and downloads the latest build (Chromium v154+).
+  - A free license key is available at [cloakbrowser.dev/free](https://cloakbrowser.dev/free) (sign in with GitHub).
+  - Set `CLOAKBROWSER_LICENSE_KEY=cb_...` in your `.env` file or environment.
 
 ## Notes
 
