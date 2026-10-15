@@ -45,7 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy application files
+# Copy application files (cache-bust ensures fresh app build on changes)
+ENV APP_BUILD_EPOCH="20261015_2305"
 COPY . .
 
 RUN chmod +x /app/docker-entrypoint.sh && \
