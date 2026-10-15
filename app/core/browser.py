@@ -55,6 +55,30 @@ _TURNSTILE_STATE_JS = """() => {
     return {present:true, solved:solved};
 }"""
 
+# Reads the Turnstile token: known response inputs, caller-supplied names/globs, then turnstile.getResponse()
+_TURNSTILE_TOKEN_JS = """(names) => {
+    const toRe = g => new RegExp('^' + g.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&').replace(/\\*/g, '.*') + '$', 'i');
+    const pats = (names || []).map(toRe);
+    let token = null;
+    const fields = document.querySelectorAll('input[name], textarea[name]');
+    for(const el of fields){
+        const n = el.name || '';
+        if(!el.value) continue;
+        if(/turnstile-response/i.test(n) || pats.some(p => p.test(n))){ token = el.value; break; }
+    }
+    if(!token && window.turnstile && typeof window.turnstile.getResponse === 'function'){
+        try { token = window.turnstile.getResponse() || null; } catch(e){}
+    }
+    const w = document.querySelector('.cf-turnstile[data-sitekey], [data-sitekey]');
+    let sitekey = w ? w.getAttribute('data-sitekey') : null;
+    if(!sitekey){
+        const f = document.querySelector('iframe[src*="challenges.cloudflare.com"]');
+        const m = f && f.src.match(/\\/(0x[0-9A-Za-z_-]+)/);
+        if(m) sitekey = m[1];
+    }
+    return {token, sitekey};
+}"""
+
 _BLOCK_MARKERS = (
     "you have been blocked",
     "sorry, you have been blocked",
@@ -74,6 +98,9 @@ class BrowserResult:
     cf_bypass_attempted: bool = True
     user_agent: str | None = None
     notes: list[str] = dataclasses.field(default_factory=list)
+    turnstile_token: str | None = None
+    turnstile_sitekey: str | None = None
+    turnstile_solved_at: float | None = None
 
 
 def _parse_proxy(proxy: str | None) -> dict[str, str] | None:
@@ -201,6 +228,8 @@ class BrowserPool:
         page_load_state: str = "complete",
         cookies: dict[str, str] | None = None,
         wait_for_selector: str | None = None,
+        capture_token: bool = False,
+        token_field_names: list[str] | None = None,
     ) -> BrowserResult:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
         if self._sem is None:
@@ -209,7 +238,7 @@ class BrowserPool:
             self._launch_lock = asyncio.Lock()
 
         async with self._sem:
-            return await self._run_context(url, cf_wait, proxy, page_load_state, cookies, wait_for_selector)
+            return await self._run_context(url, cf_wait, proxy, page_load_state, cookies, wait_for_selector, capture_token, token_field_names)
 
     async def _is_bypassed(self, page: Any) -> bool:
         """Check if challenge wall has cleared."""
@@ -288,6 +317,8 @@ class BrowserPool:
         page_load_state: str,
         cookies: dict[str, str] | None,
         wait_for_selector: str | None = None,
+        capture_token: bool = False,
+        token_field_names: list[str] | None = None,
     ) -> BrowserResult:
         t0 = time.monotonic()
         proxy_cfg = _parse_proxy(proxy)
@@ -319,6 +350,9 @@ class BrowserPool:
         status: int = 200
         resp_headers: dict[str, str] = {}
         user_agent: str | None = self._default_browser_ua
+        ts_token: str | None = None
+        ts_sitekey: str | None = None
+        ts_solved_at: float | None = None
 
         try:
             browser = await self._get_browser(launch_kwargs)
@@ -410,6 +444,17 @@ class BrowserPool:
                 logger.warning("Selector '%s' never appeared on %s", selector, url)
             final_url = page.url or url
 
+            if capture_token:
+                with contextlib.suppress(Exception):
+                    info = await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])
+                    ts_token = (info or {}).get("token")
+                    ts_sitekey = (info or {}).get("sitekey")
+                    if ts_token:
+                        ts_solved_at = time.time()
+                        notes.append("Turnstile token captured (single-use, not cached)")
+                    else:
+                        notes.append("capture_token set but no Turnstile token found on page")
+
             with contextlib.suppress(Exception):
                 body = await page.content()
 
@@ -450,6 +495,9 @@ class BrowserPool:
             elapsed_ms=elapsed_ms,
             user_agent=user_agent,
             notes=notes,
+            turnstile_token=ts_token,
+            turnstile_sitekey=ts_sitekey,
+            turnstile_solved_at=ts_solved_at,
         )
 
 

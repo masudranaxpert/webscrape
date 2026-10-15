@@ -145,6 +145,18 @@ class FetchRequest(BaseModel):
         examples=[35],
     )
 
+    # Turnstile token capture (for your own / authorized sites; tokens are one-time and never cached)
+    capture_token: bool = Field(
+        default=False,
+        description="Return the Turnstile response token issued to the browser tab (forces browser engine). Never cached: tokens are single-use.",
+        examples=[False],
+    )
+    token_field_names: list[str] | None = Field(
+        default=None,
+        description="Extra input/textarea names (or glob patterns) to read the token from, e.g. ['ts']. Implies capture_token.",
+        examples=[["ts"]],
+    )
+
     # HTML parsing settings
     selector: str | None = Field(
         default=None,
@@ -235,6 +247,13 @@ class FetchResponse(BaseModel):
         description="Results parsed by CSS selector if specified in request.",
         examples=[["https://example.com/download/1.zip", "https://example.com/download/2.zip"]],
     )
+    turnstile_token: str | None = Field(
+        default=None,
+        description="Turnstile response token read from the page (only when capture_token/token_field_names is set). Single-use, short-lived.",
+        examples=[None],
+    )
+    turnstile_sitekey: str | None = Field(default=None, description="Sitekey of the Turnstile widget, if found.", examples=[None])
+    turnstile_solved_at: float | None = Field(default=None, description="Unix timestamp when the token was read.", examples=[None])
     logs: list[str] = Field(
         default_factory=list,
         description="Step-by-step pipeline execution trace log.",

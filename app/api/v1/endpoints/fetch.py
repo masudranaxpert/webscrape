@@ -124,7 +124,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             logs.append(f"[CACHE] Applied cached session User-Agent: {effective_ua[:45]}...")
 
     # 1. Fast path: Direct fingerprint HTTP request
-    if not req.force_browser:
+    force_browser = req.force_browser or req.capture_token or bool(req.token_field_names)
+    if not force_browser:
         target_url = req.url
         if effective_cookies and domain in _redirect_cache:
             cached_netloc = _redirect_cache[domain]
@@ -209,14 +210,14 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
         logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", domain, result.status_code)
     else:
-        logs.append("[FORCE] force_browser=true set in request -> Bypassing fast-path, routing directly to Browser Solver")
+        logs.append("[FORCE] browser forced (force_browser/capture_token) set in request -> Bypassing fast-path, routing directly to Browser Solver")
 
     # 2. Slow path: Cloudflare bypass via browser pool
     is_solver = True
     wait_event = None
     
     # Do not coalesce if force_browser=True or a page-specific selector is required
-    if not req.force_browser and not req.wait_for_selector:
+    if not force_browser and not req.wait_for_selector:
         async with _coalesce_lock:
             if domain in _coalesce_events:
                 is_solver = False
@@ -301,6 +302,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             page_load_state=req.page_load_state,
             cookies=effective_cookies,
             wait_for_selector=req.wait_for_selector,
+            capture_token=req.capture_token or bool(req.token_field_names),
+            token_field_names=req.token_field_names,
         )
         
         logs.extend(f"[SOLVER] {n}" for n in br.notes)
@@ -338,6 +341,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             url=br.final_url,
             protocol=None,
             extracted=extracted,
+            turnstile_token=br.turnstile_token,
+            turnstile_sitekey=br.turnstile_sitekey,
+            turnstile_solved_at=br.turnstile_solved_at,
             logs=logs,
             meta=RequestMeta(
                 via="browser",
