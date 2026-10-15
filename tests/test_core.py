@@ -1,6 +1,12 @@
 """Self-check verification script for Anti modules and API flow."""
 
 import asyncio
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path when executed directly
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from app.core.browser import pool
 from app.core.cookie_store import store
 from app.core.fetcher import httpcloak_fetch
