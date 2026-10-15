@@ -2,10 +2,9 @@ services:
   anti:
     init: true
     build: .
-    container_name: anti
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     env_file:
       - .env
     shm_size: "512mb"

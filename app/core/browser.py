@@ -284,7 +284,12 @@ class BrowserPool:
     async def _has_selector(self, page: Any, selector: str) -> bool:
         """True when the CSS selector currently matches an element in the live DOM."""
         try:
-            return await page.query_selector(selector) is not None
+            if await page.query_selector(selector) is not None:
+                return True
+            if selector.startswith("."):
+                cls_name = selector[1:]
+                return await page.query_selector(f"[class*='{cls_name}']") is not None
+            return False
         except Exception:
             return False
 
@@ -661,17 +666,29 @@ class BrowserPool:
 
                 if clicked:
                     notes.append(f"Clicked selector: {click_selector}")
+                    with contextlib.suppress(Exception):
+                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
                     for _ in range(15):
                         await asyncio.sleep(1.0)
-                        html_check = await page.content()
-                        if any(k in html_check for k in ("video-downloads", "googleusercontent", "r2.dev", "vidzer", ".mkv", ".mp4")):
+                        final_url = page.url or final_url
+                        if any(k in final_url for k in ("video-downloads", "googleusercontent", "r2.dev", "vidzer", ".mkv", ".mp4")):
                             break
-                        if (page.url or "") != url:
+                        try:
+                            html_check = await page.content()
+                            if any(k in html_check for k in ("video-downloads", "googleusercontent", "r2.dev", "vidzer", ".mkv", ".mp4")):
+                                break
+                        except Exception:
+                            pass
+                        if final_url != url:
                             break
 
-            with contextlib.suppress(Exception):
-                body = await page.content()
-                final_url = page.url or final_url
+            for _ in range(5):
+                try:
+                    body = await page.content()
+                    final_url = page.url or final_url
+                    break
+                except Exception:
+                    await asyncio.sleep(1.0)
 
             raw_cookies = await context.cookies()
             harvested = {c["name"]: c["value"] for c in raw_cookies}

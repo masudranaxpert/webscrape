@@ -28,25 +28,35 @@ def load_env(path: str = ".env") -> dict[str, str]:
 
 def extract_direct_video_url(
     target_url: str,
-    api_base: str = "https://old-test.example",
+    api_base: str = os.environ.get("ANTI_URL", "https://your-domain.example"),
     api_key: str | None = None,
 ) -> dict[str, str | float]:
     """Extract Google direct video download link and measure elapsed latency."""
     t_start = time.perf_counter()
     fetch_endpoint = f"{api_base.rstrip('/')}/fetch"
-    headers = {"X-API-Key": api_key} if api_key else {}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    if api_key:
+        headers["X-API-Key"] = api_key
 
     print(f"[*] Target URL: {target_url}")
     print(f"[*] API Endpoint: {fetch_endpoint}\n")
 
-    client = httpx.Client(timeout=60.0)
+    client = httpx.Client(timeout=120.0)
 
     # Step 1: Harvest initial cookies and resolve main page Cloudflare wall
     s1_start = time.perf_counter()
     print("[1/3] Fetching main page & solving initial challenge...")
     r1 = client.post(
         fetch_endpoint,
-        json={"url": target_url, "method": "GET"},
+        json={
+            "url": target_url,
+            "method": "GET",
+            "force_browser": True,
+            "cf_wait": 35.0,
+            "wait_for_selector": ".btn-instant",
+        },
         headers=headers,
     )
     r1.raise_for_status()
@@ -59,7 +69,8 @@ def extract_direct_video_url(
     real_link: str | None = None
     for a in soup1.find_all("a"):
         text = a.get_text().strip().lower()
-        if "instant" in text:
+        cls = " ".join(a.get("class", []))
+        if "instant" in text or "btn-instant" in cls:
             tabindex = a.get("tabindex")
             rel = a.get("rel") or []
             if tabindex != "-1" and "nofollow" not in rel:
@@ -81,6 +92,8 @@ def extract_direct_video_url(
             "url": instant_url,
             "method": "GET",
             "inject_cookies": d1.get("cookies", {}),
+            "cf_wait": 35.0,
+            "capture_token": True,
         },
         headers=headers,
     )
