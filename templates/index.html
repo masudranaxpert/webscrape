@@ -373,6 +373,20 @@
                   <td>Maximum wait seconds for Turnstile settlement in browser.</td>
                 </tr>
                 <tr>
+                  <td><span class="param-name">wait_for_selector</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>CSS selector that must exist in live DOM before returning. Forces browser escalation if fast-path HTML lacks it (useful for client-rendered dynamic buttons).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">click_selector</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>CSS selector to click once the page/Turnstile is resolved before capturing DOM. Automatically handles in-page button submission and redirects.</td>
+                </tr>
+                <tr>
                   <td><span class="param-name">cookie_ttl</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">integer</span></td>
@@ -401,6 +415,27 @@
                   <td><span class="param-default">35</span></td>
                   <td>Maximum number of cookies allowed in request header before truncating oldest to prevent HTTP 400
                     buffer overflow.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">capture_token</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Return the Turnstile response token issued to the browser tab (forces browser engine). Never cached: tokens are single-use.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">auto_token</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">true</span></td>
+                  <td>Automatically escalate to the browser and capture token when the page embeds a Turnstile widget. Set <code>false</code> to keep fast HTTP path.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">token_field_names</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string[] | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Extra input/textarea names to read the token from (e.g. <code>["ts"]</code>). Implies <code>capture_token</code>.</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">selector</span></td>
