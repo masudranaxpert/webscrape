@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.api.v1.endpoints.fetch import clear_redirect_cache
 from app.core.cookie_store import store
 
 router = APIRouter()
@@ -39,6 +40,7 @@ async def get_cookies(domain: str) -> JSONResponse:
     response_description="Confirmation of domain invalidation.",
 )
 async def invalidate_cookies(domain: str) -> JSONResponse:
-    """Manually evict stored cookies for a domain from in-memory LRU store."""
+    """Manually evict stored cookies and redirect cache for a domain from in-memory LRU store."""
     removed = store.invalidate(domain)
+    clear_redirect_cache(domain)
     return JSONResponse({"domain": domain, "invalidated": removed})

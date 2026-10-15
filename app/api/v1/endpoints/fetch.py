@@ -31,12 +31,24 @@ _coalesce_lock: asyncio.Lock = asyncio.Lock()
 def _cache_redirect(domain: str, url: str) -> None:
     """Store redirect hostname with LRU eviction to prevent 403 loops on naked domains."""
     parsed_final = urlparse(url)
-    if parsed_final.hostname and parsed_final.hostname != domain:
+    if (
+        parsed_final.hostname
+        and parsed_final.hostname != domain
+        and store.domain_of(parsed_final.hostname) == domain
+    ):
         if domain in _redirect_cache:
             _redirect_cache.move_to_end(domain)
         elif len(_redirect_cache) >= _MAX_REDIRECTS:
             _redirect_cache.popitem(last=False)
         _redirect_cache[domain] = parsed_final.netloc
+
+
+def clear_redirect_cache(domain: str | None = None) -> None:
+    """Evict redirect target for a specific domain, or clear entirely if None."""
+    if domain:
+        _redirect_cache.pop(domain, None)
+    else:
+        _redirect_cache.clear()
 
 
 def _preset_for_ua(ua: str | None) -> str | None:
@@ -276,11 +288,14 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             logs.append("[ESCALATE] Challenge detected -> Escalating to Browser Solver")
 
         if result.cf_wall and cache_hit:
-            # A challenge despite our cached clearance proves it is stale/rejected; injecting it into the browser
-            # makes Cloudflare re-challenge a "bad" session instead of a clean one
+            # Preserve application session cookies so multi-step stateful flows (e.g. ci_session) do not expire
+            app_cookies = {
+                k: v for k, v in cached_cookies.items()
+                if not (k.startswith("cf_") or k.startswith("__cf"))
+            }
             store.invalidate(domain)
-            effective_cookies = dict(req.inject_cookies)
-            logs.append("[CACHE] Cached clearance rejected by Cloudflare -> invalidated, solving from a clean browser session")
+            effective_cookies = {**app_cookies, **req.inject_cookies}
+            logs.append("[CACHE] Cached clearance rejected by Cloudflare -> invalidated clearance, preserved application session cookies")
 
         logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", domain, result.status_code)
     else:
