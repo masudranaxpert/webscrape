@@ -359,6 +359,13 @@
                   <td>Set <code>true</code> to skip fast-path and force headless browser execution.</td>
                 </tr>
                 <tr>
+                  <td><span class="param-name">force_http</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Set <code>true</code> for HTTP only: never escalate to the browser; the raw response (even 403 or a challenge page) is returned as-is. Cannot be combined with <code>force_browser</code>.</td>
+                </tr>
+                <tr>
                   <td><span class="param-name">cf_wait</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">float</span></td>

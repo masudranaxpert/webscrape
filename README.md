@@ -38,6 +38,7 @@ Docker: `docker compose up -d --build`. Interactive docs are at `/docs`.
 | Field | Purpose |
 | --- | --- |
 | `force_browser` | Skip the HTTP path |
+| `force_http` | HTTP only: never escalate to the browser, return the raw response (403/challenge included). Cannot combine with `force_browser` |
 | `wait_for_selector` | Wait until an element exists in the live DOM |
 | `cf_wait` | Seconds the solver may spend (default 10, a page with two challenges needs about 25) |
 | `proxy`, `preset`, `user_agent` | Network identity |

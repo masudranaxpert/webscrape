@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RequestMeta(BaseModel):
@@ -74,6 +74,14 @@ class FetchRequest(BaseModel):
     force_browser: bool = Field(
         default=False,
         description="Skip fast path and execute directly via headless browser.",
+        examples=[False],
+    )
+    force_http: bool = Field(
+        default=False,
+        description=(
+            "HTTP only: never escalate to the headless browser. The raw HTTP response is returned as-is, "
+            "even when it is a 403/429/503 or a challenge page. Cannot be combined with `force_browser`."
+        ),
         examples=[False],
     )
     cf_wait: float = Field(
@@ -212,6 +220,12 @@ class FetchRequest(BaseModel):
         if isinstance(v, str) and v.strip():
             return v.strip().upper()
         return "GET"
+
+    @model_validator(mode="after")
+    def check_engine_flags(self) -> "FetchRequest":
+        if self.force_http and (self.force_browser or self.capture_token or self.token_field_names):
+            raise ValueError("force_http cannot be combined with force_browser, capture_token or token_field_names")
+        return self
 
 
 class FetchResponse(BaseModel):

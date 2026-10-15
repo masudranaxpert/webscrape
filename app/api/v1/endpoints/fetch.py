@@ -178,6 +178,36 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             timeout=req.timeout,
         )
 
+        if req.force_http:
+            # HTTP only: hand back whatever the origin answered, never escalate to the browser
+            if result.error:
+                logs.append(f"[HTTP-FAIL] force_http: {result.error} ({result.elapsed_ms}ms)")
+                status_code, body = 502, f"HTTP request failed: {result.error}"
+            else:
+                logs.append(f"[HTTP-FORCED] force_http: returning HTTP {result.status_code} ({result.protocol or 'h2'}) in {result.elapsed_ms}ms without browser escalation")
+                status_code, body = result.status_code, result.body
+            total_ms = int((time.monotonic() - t_start) * 1000)
+            logs.append(f"[DONE] Request resolved via HTTP Engine (forced) in {total_ms}ms")
+            return FetchResponse(
+                status_code=status_code,
+                headers=result.headers,
+                body=body,
+                cookies=result.cookies or effective_cookies,
+                url=result.final_url,
+                protocol=result.protocol,
+                extracted=_extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector and not result.error else None,
+                logs=logs,
+                meta=RequestMeta(
+                    via="http",
+                    request_type="http_request",
+                    preset=req.preset,
+                    cf_bypass_attempted=False,
+                    cache_hit=cache_hit,
+                    cookies_used=len(effective_cookies),
+                    user_agent=effective_ua,
+                ),
+            )
+
         selector_missing = bool(
             req.wait_for_selector and not result.cf_wall and not _selector_present(result.body, req.wait_for_selector)
         )
