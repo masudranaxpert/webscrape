@@ -85,9 +85,9 @@ class FetchRequest(BaseModel):
         examples=[False],
     )
     cf_wait: float = Field(
-        default=20.0,
+        default=25.0,
         description="Maximum seconds to wait for Turnstile resolution and for `wait_for_selector` to appear.",
-        examples=[20.0],
+        examples=[25.0],
     )
     wait_for_selector: str | None = Field(
         default=None,

@@ -41,12 +41,13 @@ Docker: `docker compose up -d --build`. Interactive docs are at `/docs`.
 | `force_http` | HTTP only: never escalate to the browser, return the raw response (403/challenge included). Cannot combine with `force_browser` |
 | `wait_for_selector` | Wait until an element exists in the live DOM (useful for client-rendered dynamic content) |
 | `click_selector` | Click a selector after challenge resolution to trigger in-page redirects or submissions |
-| `cf_wait` | Seconds the solver may spend (default 10, a page with two challenges needs about 25) |
+| `cf_wait` | Seconds the solver may spend (default 25.0, exits immediately once resolved) |
+| `session_id` | Isolated session namespace to prevent cookie collisions between concurrent scraping flows |
 | `proxy`, `preset`, `user_agent` | Network identity |
 | `cookie_ttl`, `cookie_allowlist`, `inject_cookies` | Cookie cache control |
 | `capture_token` | Return the Turnstile token |
 | `token_field_names` | Extra field names to read the token from |
-| `auto_token` | Capture automatically when the page embeds a widget (default `true`) |
+| `auto_token` | Capture automatically when the page embeds a widget (default `false`) |
 
 ### In-Page Actions & Multi-Step Flows
 

@@ -369,7 +369,7 @@
                   <td><span class="param-name">cf_wait</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">float</span></td>
-                  <td><span class="param-default">20.0</span></td>
+                  <td><span class="param-default">25.0</span></td>
                   <td>Maximum wait seconds for Turnstile settlement in browser (early-exits immediately upon resolution).</td>
                 </tr>
                 <tr>
@@ -662,7 +662,7 @@
                 browser is never started; a 403 or challenge page is returned as-is. Use this for POST/API calls where a
                 403 comes from the site itself (e.g. an invalid token), not from Cloudflare.</li>
               <li><strong><code>cf_wait</code></strong>: Maximum duration in seconds to wait for Cloudflare Turnstile to
-                solve and redirect (default <code>20.0</code>s). Early-exits immediately as soon as the challenge is solved.</li>
+                solve and redirect (default <code>25.0</code>s). Early-exits immediately as soon as the challenge is solved.</li>
               <li><strong>Dynamic Redirect Cache</strong>: When an origin domain redirects to a separate domain
                 post-challenge (e.g. <code>.com</code> → <code>.net</code>), the API caches the destination so
                 subsequent requests hit the final URL directly on the fast-path.</li>
@@ -742,7 +742,7 @@ response = httpx.<span class="hl-fn">post</span>(
     json={
         <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/protected-page"</span>,
         <span class="json-key">"selector"</span>: <span class="hl-string">"title"</span>,
-        <span class="json-key">"cf_wait"</span>: <span class="hl-number">10.0</span>
+        <span class="json-key">"cf_wait"</span>: <span class="hl-number">25.0</span>
     },
     timeout=<span class="hl-number">30.0</span>
 )

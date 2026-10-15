@@ -258,7 +258,7 @@ class BrowserPool:
     async def solve_and_fetch(
         self,
         url: str,
-        cf_wait: float = 10.0,
+        cf_wait: float = 25.0,
         proxy: str | None = None,
         page_load_state: str = "complete",
         cookies: dict[str, str] | None = None,
