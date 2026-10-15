@@ -10,7 +10,7 @@ from fastapi import APIRouter
 
 from app.core.browser import pool
 from app.core.cookie_store import store
-from app.core.fetcher import httpcloak_fetch
+from app.core.fetcher import has_turnstile_widget, httpcloak_fetch
 from app.schemas.scraping import FetchRequest, FetchResponse, RequestMeta
 
 
@@ -37,6 +37,18 @@ def _cache_redirect(domain: str, url: str) -> None:
         elif len(_redirect_cache) >= _MAX_REDIRECTS:
             _redirect_cache.popitem(last=False)
         _redirect_cache[domain] = parsed_final.netloc
+
+
+def _preset_for_ua(ua: str | None) -> str | None:
+    """Map the browser UA that earned the cookies onto the closest httpcloak TLS preset."""
+    if not ua:
+        return None
+    low = ua.lower()
+    if "firefox" in low:
+        return "firefox-latest"
+    if "linux" in low and "android" not in low:
+        return "chrome-latest-linux"
+    return "chrome-latest-windows"
 
 
 def _extract(html: str, selector: str, attr: str, all_matches: bool) -> list[str]:
@@ -84,7 +96,20 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     domain = store.domain_of(req.url)
     cached_cookies = store.get(domain) or {}
-    cached_ua = store.get_ua(domain)
+    ident = store.get_identity(domain)
+    cached_ua = ident["user_agent"]
+
+    # cf_clearance is bound to the UA, egress IP and TLS fingerprint that earned it: replay with the same identity
+    if cached_cookies and req.proxy and ident["proxy"] != req.proxy:
+        cached_cookies = {}
+        cached_ua = None
+        logs_pre = "[IDENTITY] Request proxy differs from the one that earned the cached cookies -> cache ignored"
+    else:
+        logs_pre = None
+        if cached_cookies and not req.proxy and ident["proxy"]:
+            req = req.model_copy(update={"proxy": ident["proxy"]})
+        if cached_cookies and "preset" not in req.model_fields_set and ident["preset"]:
+            req = req.model_copy(update={"preset": ident["preset"]})
     raw_effective = {**cached_cookies, **req.inject_cookies}
     effective_cookies, was_truncated = store.filter_and_limit(
         cookies=raw_effective,
@@ -94,6 +119,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     )
     cache_hit = bool(cached_cookies)
 
+    if logs_pre:
+        logs.append(logs_pre)
     logs.append(f"[INIT] Request initialized for target: {req.url} (Method: {req.method})")
 
     if cache_hit:
@@ -123,7 +150,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         elif cached_ua:
             logs.append(f"[CACHE] Applied cached session User-Agent: {effective_ua[:45]}...")
 
+    if cached_cookies:
+        logs.append(f"[IDENTITY] Sticky identity from cache: proxy={'yes' if req.proxy else 'none'} preset={req.preset}")
+
     # 1. Fast path: Direct fingerprint HTTP request
+    auto_capture = False
     force_browser = req.force_browser or req.capture_token or bool(req.token_field_names)
     if not force_browser:
         target_url = req.url
@@ -150,7 +181,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         selector_missing = bool(
             req.wait_for_selector and not result.cf_wall and not _selector_present(result.body, req.wait_for_selector)
         )
-        if not result.cf_wall and not selector_missing:
+        needs_token = bool(req.auto_token and not result.cf_wall and has_turnstile_widget(result.body))
+        if not result.cf_wall and not selector_missing and not needs_token:
             logs.append(f"[HTTP-SUCCESS] Received HTTP {result.status_code} ({result.protocol or 'h2'}) in {result.elapsed_ms}ms (No challenge wall)")
             if result.cookies:
                 merged = {**effective_cookies, **result.cookies}
@@ -158,6 +190,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                     domain,
                     merged,
                     ua=effective_ua,
+                    proxy=req.proxy,
+                    preset=req.preset,
                     ttl=req.cookie_ttl,
                     allowlist=req.cookie_allowlist,
                     inject_cookies=req.inject_cookies,
@@ -195,7 +229,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             )
 
         # Log detailed failure reason on HTTP fast-path
-        if selector_missing:
+        if needs_token:
+            logs.append("[HTTP-WIDGET] Page embeds a Turnstile widget -> Escalating to Browser Solver to capture token (auto_token)")
+            auto_capture = True
+        elif selector_missing:
             logs.append(f"[HTTP-INCOMPLETE] HTTP {result.status_code} lacks selector '{req.wait_for_selector}' (rendered client-side)")
             logs.append("[ESCALATE] Dynamic content required -> Escalating to Browser Solver")
         elif result.error:
@@ -208,6 +245,13 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             logs.append(f"[HTTP-INTERSTITIAL] Interstitial verification screen detected (HTTP {result.status_code}) in {result.elapsed_ms}ms")
             logs.append("[ESCALATE] Challenge detected -> Escalating to Browser Solver")
 
+        if result.cf_wall and cache_hit:
+            # A challenge despite our cached clearance proves it is stale/rejected; injecting it into the browser
+            # makes Cloudflare re-challenge a "bad" session instead of a clean one
+            store.invalidate(domain)
+            effective_cookies = dict(req.inject_cookies)
+            logs.append("[CACHE] Cached clearance rejected by Cloudflare -> invalidated, solving from a clean browser session")
+
         logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", domain, result.status_code)
     else:
         logs.append("[FORCE] browser forced (force_browser/capture_token) set in request -> Bypassing fast-path, routing directly to Browser Solver")
@@ -217,7 +261,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     wait_event = None
     
     # Do not coalesce if force_browser=True or a page-specific selector is required
-    if not force_browser and not req.wait_for_selector:
+    if not force_browser and not auto_capture and not req.wait_for_selector:
         async with _coalesce_lock:
             if domain in _coalesce_events:
                 is_solver = False
@@ -302,7 +346,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             page_load_state=req.page_load_state,
             cookies=effective_cookies,
             wait_for_selector=req.wait_for_selector,
-            capture_token=req.capture_token or bool(req.token_field_names),
+            capture_token=req.capture_token or bool(req.token_field_names) or auto_capture,
             token_field_names=req.token_field_names,
         )
         
@@ -310,11 +354,14 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append(f"[SOLVER] Browser tab finished in {br.elapsed_ms}ms -> Status: {br.status_code} | Cookies harvested: {len(br.cookies)}")
 
         # Cache harvested cookies, session User-Agent, and resolved redirect target
-        if br.cookies:
+        # Only a successful solve earns reusable clearance: a 403/timeout leaves half-baked cookies that poison the cache
+        if br.cookies and br.status_code < 400:
             store.set(
                 domain,
                 br.cookies,
                 ua=br.user_agent,
+                proxy=req.proxy,
+                preset=_preset_for_ua(br.user_agent),
                 ttl=req.cookie_ttl,
                 allowlist=req.cookie_allowlist,
                 inject_cookies=req.inject_cookies,
@@ -344,6 +391,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             turnstile_token=br.turnstile_token,
             turnstile_sitekey=br.turnstile_sitekey,
             turnstile_solved_at=br.turnstile_solved_at,
+            token_submissions=br.token_submissions or None,
             logs=logs,
             meta=RequestMeta(
                 via="browser",

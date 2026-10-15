@@ -160,11 +160,20 @@ class CookieStore:
             return None
         return entry.get("user_agent")
 
+    def get_identity(self, domain: str) -> dict[str, str | None]:
+        """Identity (UA, proxy, preset) the cached cookies were earned with; cf_clearance is bound to it."""
+        entry = self._store.get(domain)
+        if entry is None or time.time() > entry["expires_at"]:
+            return {"user_agent": None, "proxy": None, "preset": None}
+        return {k: entry.get(k) for k in ("user_agent", "proxy", "preset")}
+
     def set(
         self,
         domain: str,
         cookies: dict[str, str],
         ua: str | None = None,
+        proxy: str | None = None,
+        preset: str | None = None,
         ttl: int = DEFAULT_COOKIE_TTL,
         allowlist: list[str] | None = None,
         inject_cookies: dict[str, str] | None = None,
@@ -187,6 +196,8 @@ class CookieStore:
         self._store[domain] = {
             "cookies": clean_cookies,
             "user_agent": ua or existing_ua,
+            "proxy": proxy,
+            "preset": preset,
             "expires_at": time.time() + ttl,
         }
 

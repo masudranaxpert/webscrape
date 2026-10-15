@@ -7,6 +7,7 @@ import contextlib
 import dataclasses
 import logging
 import os
+import re
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -47,10 +48,12 @@ _TURNSTILE_STATE_JS = """() => {
     const widgets = document.querySelectorAll(
         '.cf-turnstile, iframe[src*="challenges.cloudflare.com"][src*="turnstile"]'
     );
-    if(!widgets.length) return {present:false, solved:false};
     const inputs = document.querySelectorAll(
-        'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+        'input[name*="turnstile-response"], textarea[name*="turnstile-response"]'
     );
+    // Widgets rendered via turnstile.render() live in a shadow tree the selectors above cannot see, but they
+    // always leave their hidden response input behind in the light DOM
+    if(!widgets.length && !inputs.length) return {present:false, solved:false};
     const solved = inputs.length > 0 && Array.from(inputs).every(i => i.value && i.value.length > 0);
     return {present:true, solved:solved};
 }"""
@@ -101,6 +104,7 @@ class BrowserResult:
     turnstile_token: str | None = None
     turnstile_sitekey: str | None = None
     turnstile_solved_at: float | None = None
+    token_submissions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 def _parse_proxy(proxy: str | None) -> dict[str, str] | None:
@@ -371,6 +375,55 @@ class BrowserPool:
             page.set_default_timeout(timeout_ms)
             page.set_default_navigation_timeout(timeout_ms)
 
+            # Track the last real top-level document response: the wall often clears via in-page navigation, so the
+            # first goto() response (403 + cf-mitigated) would otherwise be reported for the final page
+            last_doc: dict[str, Any] = {}
+
+            def _on_response(r: Any) -> None:
+                try:
+                    if r.request.resource_type == "document" and r.frame == page.main_frame and r.status != 403:
+                        last_doc["status"] = r.status
+                        last_doc["headers"] = dict(r.headers or {})
+                except Exception:
+                    pass
+
+            page.on("response", _on_response)
+
+            # Sites often POST the token themselves the instant it is issued, then wipe the widget: record those
+            # submissions (token + what the server answered) since the DOM no longer has them
+            submissions: list[dict[str, Any]] = []
+            token_re = re.compile(
+                r"(?:turnstile-response|cf_turnstile|"
+                + "|".join(re.escape(n) for n in (token_field_names or []))
+                + r")[\"']?\s*[=:]\s*[\"']?([A-Za-z0-9._\-]{40,})"
+                if token_field_names else
+                r"(?:turnstile-response|cf_turnstile)[\"']?\s*[=:]\s*[\"']?([A-Za-z0-9._\-]{40,})",
+                re.I,
+            )
+
+            async def _on_submit_response(r: Any) -> None:
+                try:
+                    req = r.request
+                    m = token_re.search(req.post_data or "")
+                    if not m or len(submissions) >= 5:
+                        return
+                    try:
+                        text = (await r.text())[:4000]
+                    except Exception:
+                        text = ""
+                    submissions.append({
+                        "url": req.url,
+                        "method": req.method,
+                        "token": m.group(1),
+                        "response_status": r.status,
+                        "response_content_type": r.headers.get("content-type"),
+                        "response_body": text,
+                    })
+                except Exception:
+                    pass
+
+            page.on("response", lambda r: asyncio.ensure_future(_on_submit_response(r)))
+
             # Pre-inject cached cookies into context
             if cookies:
                 cookie_list = [
@@ -407,13 +460,44 @@ class BrowserPool:
                 logger.info("Solver loop entered: %s", ", ".join(reasons))
                 notes.append(f"Solver triggered: {', '.join(reasons)}")
 
-                clicked = False
+                last_click = 0.0
+                refreshed = False
+                extended = False
                 deadline = time.monotonic() + cf_wait
                 while not await self._is_ready(page, selector):
                     if time.monotonic() >= deadline:
                         break
-                    if not clicked:
-                        clicked = await self._click_turnstile_checkbox(page)
+                    # Retry on a throttle: the interstitial and a later embedded widget each need their own click
+                    if time.monotonic() - last_click >= 3.0:
+                        if await self._click_turnstile_checkbox(page):
+                            last_click = time.monotonic()
+                            # Sites consume the token in their own callback within a second: grab it as it appears
+                            for _ in range(25 if await self._is_bypassed(page) else 0):
+                                await asyncio.sleep(0.2)
+                                with contextlib.suppress(Exception):
+                                    tok = (await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])).get("token")
+                                    if tok:
+                                        ts_token = tok
+                                        break
+                    # The wall cleared but a second (embedded) widget appeared: its checkbox takes ~5s to render
+                    # and ~2s to verify, so grant it a fresh window instead of the exhausted wall budget
+                    if not extended and await self._is_bypassed(page) and await self._turnstile_pending(page):
+                        extended = True
+                        deadline = max(deadline, time.monotonic() + 20.0)
+                        notes.append("Embedded widget after wall -> solve window extended")
+                    # Clearance issued but the wall page did not navigate on its own: reload once so the
+                    # real page (and any embedded widget) can load inside the remaining solve window
+                    if not refreshed and not await self._is_bypassed(page):
+                        ck = {c["name"] for c in await context.cookies()}
+                        if "cf_clearance" in ck:
+                            refreshed = True
+                            logger.info("Clearance cookie present mid-solve, reloading page...")
+                            with contextlib.suppress(Exception):
+                                resp = await page.goto(url, wait_until=load_state, timeout=15000)
+                                if resp is not None and getattr(resp, "status", None):
+                                    status_code = resp.status
+                                    resp_headers = dict(getattr(resp, "headers", None) or {})
+                            await asyncio.sleep(1.0)
                     await asyncio.sleep(1.0)
 
                 # If clearance was issued but page hasn't reloaded automatically
@@ -434,9 +518,31 @@ class BrowserPool:
                 else:
                     if await self._turnstile_pending(page):
                         notes.append("Embedded Turnstile still unresolved at timeout")
+                    try:
+                        title = await page.title()
+                        st = await page.evaluate(_TURNSTILE_STATE_JS)
+                        frames = [f.url[:90] for f in page.frames if "challenges.cloudflare" in (f.url or "")]
+                        cbs = []
+                        for f in page.frames:
+                            if "challenges.cloudflare" in (f.url or ""):
+                                try:
+                                    cbs.append(await f.evaluate(_FIND_CHECKBOX_JS))
+                                except Exception as fe:
+                                    cbs.append(f"err:{fe}"[:80])
+                        notes.append(f"debug: title={title!r} state={st} cf_frames={frames} checkboxes={cbs}")
+                    except Exception as de:
+                        notes.append(f"debug failed: {de}")
 
             # Final state capture
             bypassed = await self._is_bypassed(page)
+            if bypassed and last_doc:
+                status_code = last_doc["status"]
+                resp_headers = last_doc["headers"]
+            # Body is already decoded text: encoding/length headers from the wire would mislead API clients
+            resp_headers = {
+                k: v for k, v in resp_headers.items()
+                if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")
+            }
             status = 200 if bypassed else (status_code if status_code != 200 else 403)
             if bypassed and selector and not await self._has_selector(page, selector):
                 status = 408
@@ -444,16 +550,65 @@ class BrowserPool:
                 logger.warning("Selector '%s' never appeared on %s", selector, url)
             final_url = page.url or url
 
-            if capture_token:
+            widget_present = False
+            # Embedded widgets are injected ~2s after the real page loads, so right after a wall solve "no widget yet"
+            # is not final: give it a short window to appear before concluding the page has none
+            widget_deadline = time.monotonic() + (5.0 if wall else 0.0)
+            while True:
                 with contextlib.suppress(Exception):
-                    info = await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])
-                    ts_token = (info or {}).get("token")
-                    ts_sitekey = (info or {}).get("sitekey")
-                    if ts_token:
-                        ts_solved_at = time.time()
-                        notes.append("Turnstile token captured (single-use, not cached)")
-                    else:
-                        notes.append("capture_token set but no Turnstile token found on page")
+                    widget_present = bool((await page.evaluate(_TURNSTILE_STATE_JS)).get("present"))
+                if widget_present or time.monotonic() >= widget_deadline:
+                    break
+                await asyncio.sleep(1.0)
+            if ts_token and not capture_token:
+                capture_token = True
+                notes.append("Token caught right after solve -> capturing")
+            if not widget_present and not capture_token and wall:
+                # The widget may already be solved and gone from the DOM while its token input still holds the value
+                with contextlib.suppress(Exception):
+                    if (await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])).get("token"):
+                        capture_token = True
+                        notes.append("Solved Turnstile token found in DOM -> capturing")
+            if widget_present and not capture_token:
+                capture_token = True
+                notes.append("Turnstile widget detected -> auto-capturing token")
+            if capture_token:
+                async def _read_token(window: float) -> None:
+                    nonlocal ts_token, ts_sitekey
+                    until = time.monotonic() + window
+                    last_try = 0.0
+                    while True:
+                        # The widget checkbox may still be waiting for a click (it renders a few seconds late)
+                        if widget_present and not ts_token and time.monotonic() - last_try >= 3.0:
+                            last_try = time.monotonic()
+                            with contextlib.suppress(Exception):
+                                await self._click_turnstile_checkbox(page)
+                        try:
+                            info = await page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or [])
+                            ts_token = (info or {}).get("token") or ts_token
+                            ts_sitekey = (info or {}).get("sitekey") or ts_sitekey
+                        except Exception as te:
+                            logger.debug("Turnstile token read failed: %s", te)
+                        if ts_token or time.monotonic() >= until:
+                            return
+                        await asyncio.sleep(1.0)
+
+                await _read_token(15.0 if widget_present else 3.0)
+                if ts_token:
+                    ts_solved_at = time.time()
+                    notes.append("Turnstile token captured (single-use, not cached)")
+                else:
+                    notes.append("capture_token set but no Turnstile token found on page")
+
+            # The site's own token POST + answer can lag the solve by a moment
+            if (wall or embedded) and not submissions:
+                await asyncio.sleep(1.5)
+            if submissions and not ts_token:
+                ts_token = submissions[0]["token"]
+                ts_solved_at = time.time()
+                notes.append("Token read from the site's own submit request (widget already removed from DOM)")
+            if submissions:
+                notes.append(f"Site submitted the token itself -> {len(submissions)} submission(s) captured in token_submissions")
 
             with contextlib.suppress(Exception):
                 body = await page.content()
@@ -498,6 +653,7 @@ class BrowserPool:
             turnstile_token=ts_token,
             turnstile_sitekey=ts_sitekey,
             turnstile_solved_at=ts_solved_at,
+            token_submissions=submissions,
         )
 
 

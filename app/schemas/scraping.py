@@ -151,6 +151,11 @@ class FetchRequest(BaseModel):
         description="Return the Turnstile response token issued to the browser tab (forces browser engine). Never cached: tokens are single-use.",
         examples=[False],
     )
+    auto_token: bool = Field(
+        default=True,
+        description="Escalate to the browser and capture the token automatically when the page embeds a Turnstile widget. Set false to keep the fast HTTP path.",
+        examples=[True],
+    )
     token_field_names: list[str] | None = Field(
         default=None,
         description="Extra input/textarea names (or glob patterns) to read the token from, e.g. ['ts']. Implies capture_token.",
@@ -254,6 +259,14 @@ class FetchResponse(BaseModel):
     )
     turnstile_sitekey: str | None = Field(default=None, description="Sitekey of the Turnstile widget, if found.", examples=[None])
     turnstile_solved_at: float | None = Field(default=None, description="Unix timestamp when the token was read.", examples=[None])
+    token_submissions: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Requests the page itself sent carrying the Turnstile token (site callback -> POST), with the server's answer. "
+            "Tokens are single-use, so when the site already submitted it, the response here is the useful result."
+        ),
+        examples=[[{"url": "https://example.com/f/abc", "method": "POST", "response_status": 200, "response_body": "{\"link\": \"...\"}"}]],
+    )
     logs: list[str] = Field(
         default_factory=list,
         description="Step-by-step pipeline execution trace log.",

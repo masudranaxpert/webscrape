@@ -42,6 +42,10 @@ class FetcherResult:
 
 def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -> bool:
     """Identify Cloudflare Turnstile and challenge interstitials."""
+    # Cloudflare marks every challenge it serves with `cf-mitigated: challenge`, even on HTTP 200
+    if headers and any(k.lower() == "cf-mitigated" and "challenge" in str(v).lower() for k, v in headers.items()):
+        return True
+
     if not body:
         return status in (403, 429, 503)
 
@@ -63,6 +67,14 @@ def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -
         return True
 
     return False
+
+
+_WIDGET_MARKERS = ("cf-turnstile", "challenges.cloudflare.com/turnstile", "turnstile/v0/api.js")
+
+
+def has_turnstile_widget(body: str) -> bool:
+    """True when the raw HTML embeds a Turnstile widget (token can only be issued by a real browser)."""
+    return bool(body) and any(m in body for m in _WIDGET_MARKERS)
 
 
 def _sanitize_proxy(proxy: str | None) -> str | None:
