@@ -169,8 +169,10 @@ class BrowserPool:
         )
 
     def _should_recycle(self) -> bool:
-        """Check if active browser worker has exceeded max lifetime TTL."""
+        """Check if active browser worker has exceeded max lifetime TTL and has no active contexts."""
         if self._browser is None:
+            return False
+        if self._active_contexts > 0:
             return False
         return (time.monotonic() - self._browser_created_at) >= self._max_lifetime_sec
 
@@ -181,29 +183,58 @@ class BrowserPool:
                 await browser.close()
             self._retiring_browsers.discard(browser)
 
+    async def _launch_browser(self, launch_kwargs: dict[str, Any]) -> Any:
+        """Launch CloakBrowser instance with automatic fallback to unauthenticated mode on license error."""
+        try:
+            return await cb.launch_async(**launch_kwargs)
+        except Exception as err:
+            err_msg = str(err).lower()
+            if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
+                logger.warning(
+                    "CloakBrowser license failure (%s); falling back to unauthenticated engine",
+                    err,
+                )
+                fallback_kwargs = dict(launch_kwargs)
+                fallback_kwargs["license_key"] = None
+                saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
+                try:
+                    return await cb.launch_async(**fallback_kwargs)
+                finally:
+                    if saved_key:
+                        os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
+            raise
+
     async def _get_browser(self, launch_kwargs: dict[str, Any]) -> Any:
-        """Acquire healthy browser instance, gracefully retiring aged workers."""
+        """Acquire healthy browser instance, cleanly recycling idle aged workers."""
         if self._launch_lock is None:
             self._launch_lock = asyncio.Lock()
 
         async with self._launch_lock:
+            # Check if existing browser disconnected or terminated
+            if self._browser is not None:
+                try:
+                    if not self._browser.is_connected():
+                        logger.warning("Browser disconnected or terminated; cleaning up for restart")
+                        old_b = self._browser
+                        self._browser = None
+                        await self._close_browser_safely(old_b)
+                except Exception:
+                    self._browser = None
+
             if self._should_recycle():
                 age = time.monotonic() - self._browser_created_at
                 logger.info(
-                    "Retiring browser worker (age=%.1fs, active_contexts=%d) for graceful recycle",
+                    "Recycling browser worker (age=%.1fs, active_contexts=%d) before serving new request",
                     age,
                     self._active_contexts,
                 )
                 old_browser = self._browser
                 self._browser = None
                 if old_browser:
-                    if self._active_contexts == 0:
-                        asyncio.create_task(self._close_browser_safely(old_browser))
-                    else:
-                        self._retiring_browsers.add(old_browser)
+                    await self._close_browser_safely(old_browser)
 
             if self._browser is None:
-                self._browser = await cb.launch_async(**launch_kwargs)
+                self._browser = await self._launch_browser(launch_kwargs)
                 self._browser_created_at = time.monotonic()
 
             return self._browser
@@ -355,6 +386,7 @@ class BrowserPool:
         launch_kwargs: dict[str, Any] = {
             "headless": self._headless,
             "humanize": True,
+            "_suppress_maximize": True,
             "args": [
                 FAKE_SHADOW_ARG,
                 "--no-sandbox",
@@ -363,7 +395,8 @@ class BrowserPool:
                 "--lang=en-US,en",
                 "--no-crashpad",
                 "--disable-crash-reporter",
-            ]
+                "--window-size=1280,720",
+            ],
         }
 
         context = None
@@ -386,7 +419,10 @@ class BrowserPool:
                 async with self._launch_lock:
                     self._active_contexts += 1
 
-            context_kwargs: dict[str, Any] = {"locale": "en-US"}
+            context_kwargs: dict[str, Any] = {
+                "locale": "en-US",
+                "viewport": {"width": 1280, "height": 720},
+            }
             if proxy_cfg:
                 context_kwargs["proxy"] = proxy_cfg
 
@@ -710,7 +746,7 @@ class BrowserPool:
                     self._active_contexts = max(0, self._active_contexts - 1)
                     if self._active_contexts == 0 and self._retiring_browsers:
                         for retiring in list(self._retiring_browsers):
-                            asyncio.create_task(self._close_browser_safely(retiring))
+                            await self._close_browser_safely(retiring)
 
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
