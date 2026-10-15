@@ -1,70 +1,70 @@
-# Anti-Bot Scraping API 🚀
+# Anti-Bot Scraping API
 
-High-performance async scraping API built with FastAPI. Combines TLS fingerprinting (`httpcloak`) with stealth browser solving (`cloakbrowser`) to bypass Cloudflare Turnstile with minimal CPU/RAM footprint.
+A FastAPI service that fetches pages protected by Cloudflare. It tries a fast TLS-fingerprinted HTTP request first and falls back to a stealth Chromium only when a challenge appears. It can also return the Turnstile token a page issues.
 
-## ✨ Features
+Live: https://your-domain.example
 
-* **Dual-Engine Architecture**: Fast HTTP TLS-fingerprinted requests with automated fallback to headless Chromium for Turnstile challenges.
-* **Request Coalescing**: Groups concurrent requests per domain so only 1 browser tab solves the challenge while others wait and reuse cookies.
-* **Smart Session Store**: In-memory LRU `CookieStore` for `cf_clearance` caching, allowlisting, and header size safety.
-* **HTML Extraction**: Fast CSS selector parsing powered by `selectolax`.
-* **Resource Safe**: Semaphore-bounded browser pool with zero socket/context leaks.
+## How it works
 
-## 🚀 Getting Started
+1. **HTTP first.** `httpcloak` sends the request with a browser TLS fingerprint. Most requests end here.
+2. **Browser on challenge.** `cloakbrowser` opens the page, clicks the Turnstile checkbox and collects `cf_clearance`.
+3. **Replay.** Cookies are cached per domain together with the User-Agent, proxy and TLS preset that earned them, so later requests go back to step 1.
 
-### Installation
+Concurrent requests for one domain share a single browser solve. Browser tabs are capped by `MAX_TABS`.
+
+## Run
+
 ```bash
-uv pip install -r requirements.txt
-```
-
-### Running the API
-```bash
+pip install -r requirements.txt
+cp .env.example .env   # set API_KEY
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-## 📖 API Usage
+Docker: `docker compose up -d --build`. Interactive docs are at `/docs`.
 
-### `POST /fetch`
+## API
 
-**Headers:**
-```http
-X-API-Key: anti_secret_key_123
-Content-Type: application/json
-```
+`POST /fetch` with an `X-API-Key` header.
 
-**Payload:**
 ```json
 {
-  "url": "https://example.com/protected-page",
-  "method": "GET",
-  "selector": "h1.title",
-  "selector_attr": "text"
+  "url": "https://example.com/page",
+  "selector": "a.download",
+  "selector_attr": "href",
+  "selector_all": true
 }
 ```
 
-**Optional Parameters:**
-```json
-{
-  "url": "https://example.com/protected-page",
-  "method": "GET",
-  "proxy": "http://user:pass@proxy.ip:port",
-  "force_browser": false,
-  "preset": "chrome-latest-windows",
-  "cookie_ttl": 3600,
-  "timeout": 30
-}
-```
+| Field | Purpose |
+| --- | --- |
+| `force_browser` | Skip the HTTP path |
+| `wait_for_selector` | Wait until an element exists in the live DOM |
+| `cf_wait` | Seconds the solver may spend (default 10, a page with two challenges needs about 25) |
+| `proxy`, `preset`, `user_agent` | Network identity |
+| `cookie_ttl`, `cookie_allowlist`, `inject_cookies` | Cookie cache control |
+| `capture_token` | Return the Turnstile token |
+| `token_field_names` | Extra field names to read the token from |
+| `auto_token` | Capture automatically when the page embeds a widget (default `true`) |
 
-## ⚙️ Configuration (`.env`)
+### Turnstile tokens
 
-* `API_KEY`: Secret authentication key for API access (required for `/fetch` and `/cookies`)
-* `PORT`: Server port (default: `8000`)
-* `MAX_TABS`: Concurrency limit for worker browser tabs (default: `3`)
-* `BROWSER_HEADLESS`: Run Chromium headless (default: `true`)
-* `DEFAULT_COOKIE_TTL`: Cookie cache TTL in seconds (default: `3600`)
-* `MAX_CACHED_DOMAINS`: Max cached domain count (default: `10`)
+The response carries `turnstile_token`, `turnstile_sitekey` and `turnstile_solved_at`. Tokens are single use and never cached.
 
-## 🔮 Next Phase / Roadmap
+Many sites submit the token themselves the moment it is issued and then remove the widget. For those, `token_submissions` holds the request the page sent and the server's answer, which is usually the useful part.
 
-* **Proxy-Aware Clearance Caching**: Key cached `cf_clearance` tokens by `(domain, proxy)` pair instead of domain alone. Since Cloudflare binds clearance tokens to the solver's egress IP, this eliminates redundant 403 fallbacks when rotating distinct proxies.
-* **Distributed Session Store**: Optional Redis backend for `CookieStore` to support horizontal scaling across multi-worker clusters.
+Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{domain}`. Health check: `GET /health`.
+
+## Configuration
+
+| Variable | Default | |
+| --- | --- | --- |
+| `API_KEY` | | Required for `/fetch` and `/cookies` |
+| `PORT` | `8000` | |
+| `MAX_TABS` | `3` | Concurrent browser tabs |
+| `BROWSER_HEADLESS` | `true` | |
+| `DEFAULT_COOKIE_TTL` | `86400` | Seconds |
+| `MAX_CACHED_DOMAINS` | `10` | |
+
+## Notes
+
+Use it on sites you own or are allowed to test. Cloudflare binds `cf_clearance` to the IP, User-Agent and TLS fingerprint that earned it, so keep those the same between the solve and the replay.
