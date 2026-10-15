@@ -301,27 +301,31 @@ class BrowserPool:
         cf_frames = [f for f in page.frames if "challenges.cloudflare" in (f.url or "")]
         for frame in cf_frames:
             try:
-                info = await frame.evaluate(_FIND_CHECKBOX_JS)
-                if not info or not info.get("found") or info.get("w", 0) <= 0 or info.get("checked"):
-                    continue
-
                 frame_el = await frame.frame_element()
                 box = await frame_el.bounding_box()
-                if not box:
-                    continue
-
-                click_x = box["x"] + info["x"]
-                click_y = box["y"] + info["y"]
-                logger.info("Turnstile checkbox located: clicking at (%.1f, %.1f)", click_x, click_y)
-                await page.mouse.click(click_x, click_y)
-
-                await asyncio.sleep(0.5)
-                after = await frame.evaluate(_FIND_CHECKBOX_JS)
-                if not after.get("found") or after.get("checked"):
-                    logger.info("Turnstile checkbox click verified")
+                if box and box["width"] >= 20:
+                    click_x = box["x"] + 30
+                    click_y = box["y"] + box["height"] / 2
+                    logger.info("Turnstile checkbox located: clicking at (%.1f, %.1f)", click_x, click_y)
+                    await page.mouse.click(click_x, click_y)
+                    await asyncio.sleep(0.5)
                     return True
             except Exception as e:
-                logger.debug("Turnstile frame interaction exception: %s", e)
+                logger.debug("Turnstile frame bounding box exception: %s", e)
+
+            try:
+                info = await frame.evaluate(_FIND_CHECKBOX_JS)
+                if info and info.get("found") and info.get("w", 0) > 0 and not info.get("checked"):
+                    frame_el = await frame.frame_element()
+                    box = await frame_el.bounding_box()
+                    if box:
+                        click_x = box["x"] + info["x"]
+                        click_y = box["y"] + info["y"]
+                        await page.mouse.click(click_x, click_y)
+                        await asyncio.sleep(0.5)
+                        return True
+            except Exception as e:
+                logger.debug("Turnstile frame evaluate exception: %s", e)
         return False
 
     async def _run_context(
@@ -345,6 +349,7 @@ class BrowserPool:
 
         launch_kwargs: dict[str, Any] = {
             "headless": self._headless,
+            "humanize": True,
             "args": [
                 FAKE_SHADOW_ARG,
                 "--no-sandbox",
@@ -623,15 +628,46 @@ class BrowserPool:
                 notes.append(f"Site submitted the token itself -> {len(submissions)} submission(s) captured in token_submissions")
 
             if click_selector:
-                with contextlib.suppress(Exception):
-                    logger.info("Waiting for click_selector '%s'...", click_selector)
-                    btn = await page.wait_for_selector(click_selector, state="visible", timeout=10000)
-                    if btn:
-                        await page.click(click_selector)
-                        notes.append(f"Clicked selector: {click_selector}")
-                        await asyncio.sleep(2.0)
-                        with contextlib.suppress(Exception):
-                            await page.wait_for_load_state(load_state, timeout=10000)
+                logger.info("Handling click_selector '%s'...", click_selector)
+                for _ in range(15):
+                    btn_disabled = True
+                    note = ""
+                    with contextlib.suppress(Exception):
+                        note = (await page.eval_on_selector("#note", "el => el.innerText") or "").lower()
+                    with contextlib.suppress(Exception):
+                        btn_disabled = await page.eval_on_selector(click_selector, "el => el.disabled")
+                    if not btn_disabled or "verified" in note or ts_token:
+                        break
+                    await asyncio.sleep(1.0)
+
+                clicked = False
+                try:
+                    clicked = await page.evaluate(f"""() => {{
+                        const btn = document.querySelector('{click_selector}');
+                        if (btn) {{
+                            btn.disabled = false;
+                            btn.click();
+                            return true;
+                        }}
+                        const f = document.querySelector('form');
+                        if (f) {{
+                            f.submit();
+                            return true;
+                        }}
+                        return false;
+                    }}""")
+                except Exception as ce:
+                    logger.warning("Click evaluation failed: %s", ce)
+
+                if clicked:
+                    notes.append(f"Clicked selector: {click_selector}")
+                    for _ in range(15):
+                        await asyncio.sleep(1.0)
+                        html_check = await page.content()
+                        if any(k in html_check for k in ("video-downloads", "googleusercontent", "r2.dev", "vidzer", ".mkv", ".mp4")):
+                            break
+                        if (page.url or "") != url:
+                            break
 
             with contextlib.suppress(Exception):
                 body = await page.content()
