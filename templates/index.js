@@ -167,6 +167,88 @@ if (headerKeyBadge) {
 // Navigation & Tab Switchers
 // ==========================================================================
 
+// Config Drawer Toggle (Default Hidden)
+const btnToggleConfig = document.getElementById('btnToggleConfig');
+const studioConfigCard = document.getElementById('studioConfigCard');
+const btnCloseConfig = document.getElementById('btnCloseConfig');
+
+function setConfigDrawerOpen(open) {
+  if (!studioConfigCard) return;
+  if (open) {
+    studioConfigCard.classList.add('is-open');
+    if (btnToggleConfig) {
+      btnToggleConfig.classList.add('active');
+      btnToggleConfig.setAttribute('aria-expanded', 'true');
+    }
+  } else {
+    studioConfigCard.classList.remove('is-open');
+    if (btnToggleConfig) {
+      btnToggleConfig.classList.remove('active');
+      btnToggleConfig.setAttribute('aria-expanded', 'false');
+    }
+  }
+}
+
+if (btnToggleConfig) {
+  btnToggleConfig.addEventListener('click', () => {
+    const isOpen = studioConfigCard && studioConfigCard.classList.contains('is-open');
+    setConfigDrawerOpen(!isOpen);
+  });
+}
+
+if (btnCloseConfig) {
+  btnCloseConfig.addEventListener('click', () => {
+    setConfigDrawerOpen(false);
+  });
+}
+
+// Active Config Dot Indicator
+function checkActiveConfigState() {
+  const dot = document.getElementById('activeConfigDot');
+  if (!dot) return;
+
+  const mode = document.getElementById('cfgEngineMode')?.value || 'auto';
+  const preset = document.getElementById('cfgPreset')?.value || 'chrome-latest-windows';
+  const httpVer = document.getElementById('cfgHttpVersion')?.value || '';
+  const proxy = document.getElementById('cfgProxy')?.value.trim() || '';
+  const ua = document.getElementById('cfgUa')?.value.trim() || '';
+  const body = document.getElementById('cfgBody')?.value.trim() || '';
+  const captureToken = document.getElementById('cfgCaptureToken')?.checked || false;
+  const turnstileToken = document.getElementById('cfgTurnstileToken')?.value.trim() || '';
+  const waitSel = document.getElementById('cfgWaitForSelector')?.value.trim() || '';
+  const clickSel = document.getElementById('cfgClickSelector')?.value.trim() || '';
+  const extractSel = document.getElementById('selectorsKvContainer')?.querySelectorAll('.kv-row').length || 0;
+  const customCookies = document.getElementById('cookiesKvContainer')?.querySelectorAll('.kv-row').length || 0;
+  const customHeaders = document.getElementById('headersKvContainer')?.querySelectorAll('.kv-row').length || 0;
+
+  const isCustom = (
+    mode !== 'auto' ||
+    preset !== 'chrome-latest-windows' ||
+    httpVer !== '' ||
+    proxy !== '' ||
+    ua !== '' ||
+    body !== '' ||
+    captureToken ||
+    turnstileToken !== '' ||
+    waitSel !== '' ||
+    clickSel !== '' ||
+    extractSel > 0 ||
+    customCookies > 0 ||
+    customHeaders > 0
+  );
+
+  dot.style.display = isCustom ? 'inline-block' : 'none';
+}
+
+['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgProxy', 'cfgUa', 'cfgBody', 'cfgCaptureToken', 'cfgTurnstileToken', 'cfgWaitForSelector', 'cfgClickSelector'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', checkActiveConfigState);
+    el.addEventListener('change', checkActiveConfigState);
+  }
+});
+checkActiveConfigState();
+
 // Config Tabs
 document.querySelectorAll('.config-tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -175,6 +257,7 @@ document.querySelectorAll('.config-tab-btn').forEach(btn => {
     btn.classList.add('active');
     const target = document.getElementById(btn.getAttribute('data-cfg'));
     if (target) target.classList.add('active');
+    setConfigDrawerOpen(true);
   });
 });
 
@@ -219,6 +302,7 @@ if (requestMethod) {
     requestMethod.className = `method-select method-${requestMethod.value.toLowerCase()}`;
     const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(requestMethod.value);
     if (isBodyMethod) {
+      setConfigDrawerOpen(true);
       const headersTabBtn = document.querySelector('.config-tab-btn[data-cfg="cfgHeaders"]');
       if (headersTabBtn && !document.getElementById('cfgHeaders').classList.contains('active')) {
         headersTabBtn.click();
@@ -249,7 +333,13 @@ function createKvRow(key = '', val = '') {
     <input type="text" class="kv-val" placeholder="Value" value="${val.replace(/"/g, '&quot;')}" />
     <button type="button" class="btn-remove-kv" title="Remove row">&times;</button>
   `;
-  row.querySelector('.btn-remove-kv').addEventListener('click', () => row.remove());
+  row.querySelector('.btn-remove-kv').addEventListener('click', () => {
+    row.remove();
+    checkActiveConfigState();
+  });
+  row.querySelectorAll('input').forEach(input => {
+    input.addEventListener('input', checkActiveConfigState);
+  });
   return row;
 }
 
@@ -269,6 +359,7 @@ const btnAddHeaderRow = document.getElementById('btnAddHeaderRow');
 if (btnAddHeaderRow) {
   btnAddHeaderRow.addEventListener('click', () => {
     document.getElementById('headersKvContainer').appendChild(createKvRow());
+    checkActiveConfigState();
   });
 }
 
@@ -278,6 +369,7 @@ if (btnAddCookieRow) {
     const row = createKvRow();
     row.querySelector('.kv-key').placeholder = 'Cookie name';
     document.getElementById('cookiesKvContainer').appendChild(row);
+    checkActiveConfigState();
   });
 }
 
@@ -340,6 +432,7 @@ document.querySelectorAll('.btn-preset').forEach(btn => {
       cfgBody.value = JSON.stringify({ message: 'Hello from Anti Stealth Studio', timestamp: new Date().toISOString() }, null, 2);
       document.querySelector('.config-tab-btn[data-cfg="cfgHeaders"]').click();
     }
+    checkActiveConfigState();
   });
 });
 

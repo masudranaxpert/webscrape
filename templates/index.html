@@ -163,14 +163,14 @@
             </svg>
             Stealth Request Studio
           </h2>
-          <p class="section-subtitle">Dual-engine browser synthesizer with TLS wire fingerprinting, Turnstile automation, and C-speed DOM extraction.</p>
+          <p class="section-subtitle">Dual-engine HTTP and headless browser client with TLS wire mimicry, Turnstile bypass, and DOM parsing.</p>
         </div>
         <div class="studio-presets">
-          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:600;">Presets:</span>
+          <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Presets:</span>
           <button type="button" class="btn-preset" data-preset="httpbin">HTTPBin GET</button>
-          <button type="button" class="btn-preset" data-preset="target-site">target-site Test</button>
-          <button type="button" class="btn-preset" data-preset="turnstile">Turnstile Capture</button>
-          <button type="button" class="btn-preset" data-preset="post_json">POST JSON</button>
+          <button type="button" class="btn-preset" data-preset="target-site">target-site Protected</button>
+          <button type="button" class="btn-preset" data-preset="turnstile">Turnstile Token</button>
+          <button type="button" class="btn-preset" data-preset="post_json">POST JSON Body</button>
         </div>
       </div>
 
@@ -191,11 +191,22 @@
             <svg class="svg-icon input-icon" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" />
               <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
             </svg>
             <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page" value="https://httpbin.org/get" required />
             <button type="button" class="btn-input-clear" id="btnClearUrl" title="Clear URL">&times;</button>
           </div>
+          <button type="button" class="btn-toggle-config" id="btnToggleConfig" aria-expanded="false" aria-controls="studioConfigCard" title="Toggle Request Options (Engine, Proxy, Headers, Body, Turnstile)">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span class="btn-toggle-label">Options</span>
+            <span class="active-config-dot" id="activeConfigDot" style="display:none" title="Custom configuration active"></span>
+            <svg class="svg-icon chevron-icon" id="configChevron" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
           <button type="submit" id="submitBtn" class="btn-send">
             <svg class="svg-icon btn-send-icon" id="btnIcon" viewBox="0 0 24 24">
               <polygon points="5 3 19 12 5 21 5 3" />
@@ -205,28 +216,34 @@
           </button>
         </div>
 
-        <!-- Studio Configuration Tabs -->
-        <div class="studio-config-card">
+        <!-- Studio Configuration Drawer (Hidden by default, toggled via Options button) -->
+        <div class="studio-config-card" id="studioConfigCard">
           <div class="config-tabs-nav">
-            <button type="button" class="config-tab-btn active" data-cfg="cfgEngine">
-              <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              Engine & Network
-            </button>
-            <button type="button" class="config-tab-btn" data-cfg="cfgHeaders">
-              <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-              Headers & Body
-            </button>
-            <button type="button" class="config-tab-btn" data-cfg="cfgTurnstile">
-              <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              Turnstile & Automation
-            </button>
-            <button type="button" class="config-tab-btn" data-cfg="cfgExtract">
-              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-              DOM Extraction
-            </button>
-            <button type="button" class="config-tab-btn" data-cfg="cfgCookies">
-              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
-              Session & Cookies
+            <div class="config-tabs-scroll">
+              <button type="button" class="config-tab-btn active" data-cfg="cfgEngine">
+                <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Engine & Network
+              </button>
+              <button type="button" class="config-tab-btn" data-cfg="cfgHeaders">
+                <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                Headers & Body
+              </button>
+              <button type="button" class="config-tab-btn" data-cfg="cfgTurnstile">
+                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Turnstile & Automation
+              </button>
+              <button type="button" class="config-tab-btn" data-cfg="cfgExtract">
+                <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                DOM Extraction
+              </button>
+              <button type="button" class="config-tab-btn" data-cfg="cfgCookies">
+                <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                Session & Cookies
+              </button>
+            </div>
+            <button type="button" class="btn-close-config" id="btnCloseConfig" title="Hide Options">
+              <span>Done</span>
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
             </button>
           </div>
 
@@ -237,20 +254,20 @@
                 <div class="cfg-field">
                   <label class="cfg-label">Engine Routing Mode</label>
                   <select id="cfgEngineMode" class="cfg-select">
-                    <option value="auto" selected>Auto (Fast HTTP → Escalates to Browser on challenge)</option>
-                    <option value="browser">Force Browser (CloakBrowser headless engine)</option>
-                    <option value="http">Force HTTP (Fast-path only, never escalate)</option>
+                    <option value="auto" selected>Auto (HTTP + Browser escalation)</option>
+                    <option value="browser">Force Browser (Full automation)</option>
+                    <option value="http">Force HTTP (Fast-path only)</option>
                   </select>
-                  <span class="cfg-hint">Auto mode delivers sub-second cached responses and escalates only when required.</span>
+                  <span class="cfg-hint">Checks cookie cache first; escalates to browser only on challenge walls.</span>
                 </div>
                 <div class="cfg-field">
                   <label class="cfg-label">Fingerprint Preset</label>
                   <select id="cfgPreset" class="cfg-select">
-                    <option value="chrome-latest-windows" selected>Chrome Latest (Windows) — Recommended</option>
-                    <option value="chrome-latest-linux">Chrome Latest (Linux)</option>
-                    <option value="firefox-latest">Firefox Latest</option>
+                    <option value="chrome-latest-windows" selected>Chrome (Windows) — Recommended</option>
+                    <option value="chrome-latest-linux">Chrome (Linux)</option>
+                    <option value="firefox-latest">Firefox (Modern)</option>
                   </select>
-                  <span class="cfg-hint">Applies matching TLS Cipher suites, ALPN, and header casing order.</span>
+                  <span class="cfg-hint">Sets matching TLS cipher suites, ALPN, and pseudo-header sequence.</span>
                 </div>
                 <div class="cfg-field">
                   <label class="cfg-label">HTTP Protocol Version</label>
@@ -260,7 +277,7 @@
                     <option value="h1">HTTP/1.1 (h1)</option>
                     <option value="h3">HTTP/3 (h3)</option>
                   </select>
-                  <span class="cfg-hint">Force specific HTTP protocol wire negotiation.</span>
+                  <span class="cfg-hint">Forces specific HTTP wire protocol negotiation.</span>
                 </div>
               </div>
               <div class="cfg-grid-3" style="margin-top:16px;">
@@ -270,12 +287,12 @@
                     <input type="text" id="cfgProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for server default)" />
                     <button type="button" class="btn-cfg-action" id="btnTestUserProxy" title="Insert User Proxy">Paste Saved</button>
                   </div>
-                  <span class="cfg-hint">Supports HTTP, HTTPS, SOCKS5, and SOCKS5h proxies. Use <code>direct</code> to bypass default proxy.</span>
+                  <span class="cfg-hint">Supports HTTP, HTTPS, and SOCKS5 (with authentication). Pass <code>direct</code> to bypass server proxy.</span>
                 </div>
                 <div class="cfg-field">
                   <label class="cfg-label">Timeout (Seconds)</label>
                   <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
-                  <span class="cfg-hint">Total request execution timeout window.</span>
+                  <span class="cfg-hint">Max request execution timeout window.</span>
                 </div>
               </div>
               <div class="cfg-grid-1" style="margin-top:16px;">
