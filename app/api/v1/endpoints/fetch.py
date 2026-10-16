@@ -296,9 +296,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 if not (k.startswith("cf_") or k.startswith("__cf"))
             }
             rejected_clearance = cached_cookies.get("cf_clearance")
-            store.invalidate(cache_key, purge_root=True, rejected_clearance=rejected_clearance)
+            store.invalidate(cache_key, rejected_clearance=rejected_clearance)
             effective_cookies = {**app_cookies, **req.inject_cookies}
-            logs.append("[CACHE] Cached clearance rejected by Cloudflare -> invalidated clearance and purged root cache, preserved application session cookies")
+            logs.append("[CACHE] Cached clearance rejected by Cloudflare -> invalidated clearance, preserved application session cookies")
 
         logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", host, result.status_code)
     else:

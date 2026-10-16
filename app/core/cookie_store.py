@@ -292,21 +292,30 @@ class CookieStore:
         }
 
         # Atomically update root domain ONLY with cf_clearance (never __cf_bm or session tokens)
-        # and keep identity (UA, proxy, preset, expiry) fully synchronized
+        # and keep identity (UA, proxy, preset, expiry) fully synchronized without wiping existing root cookies
         if "cf_clearance" in clean_cookies:
             root = self.root_domain_of(key)
             if root != key:
                 if root in self._domain_store:
                     self._domain_store.move_to_end(root)
-                elif len(self._domain_store) >= self._max_domains:
-                    self._domain_store.popitem(last=False)
-                self._domain_store[root] = {
-                    "cookies": {"cf_clearance": clean_cookies["cf_clearance"]},
-                    "user_agent": ua or existing_ua,
-                    "proxy": proxy,
-                    "preset": preset,
-                    "expires_at": time.time() + ttl,
-                }
+                    self._domain_store[root]["cookies"]["cf_clearance"] = clean_cookies["cf_clearance"]
+                    if ua or existing_ua:
+                        self._domain_store[root]["user_agent"] = ua or existing_ua
+                    if proxy is not None:
+                        self._domain_store[root]["proxy"] = proxy
+                    if preset is not None:
+                        self._domain_store[root]["preset"] = preset
+                    self._domain_store[root]["expires_at"] = time.time() + ttl
+                else:
+                    if len(self._domain_store) >= self._max_domains:
+                        self._domain_store.popitem(last=False)
+                    self._domain_store[root] = {
+                        "cookies": {"cf_clearance": clean_cookies["cf_clearance"]},
+                        "user_agent": ua or existing_ua,
+                        "proxy": proxy,
+                        "preset": preset,
+                        "expires_at": time.time() + ttl,
+                    }
 
     def invalidate(
         self,
@@ -315,8 +324,8 @@ class CookieStore:
         rejected_clearance: str | None = None,
     ) -> bool:
         """
-        Evict a key from cache. If purge_root or rejected_clearance is provided,
-        also purge any matching clearance from the root domain cache.
+        Evict a key from cache. If rejected_clearance is provided,
+        purge that specific rejected clearance from root domain as well.
         """
         removed = False
         if self._is_session_key(key):
@@ -324,17 +333,19 @@ class CookieStore:
         else:
             removed = self._domain_store.pop(key, None) is not None
 
-        if purge_root or rejected_clearance:
-            host_part = key.split("#")[0]
-            root = self.root_domain_of(host_part)
-            if root in self._domain_store:
-                if rejected_clearance:
-                    if self._domain_store[root].get("cookies", {}).get("cf_clearance") == rejected_clearance:
-                        self._domain_store.pop(root, None)
-                        removed = True
-                else:
-                    self._domain_store.pop(root, None)
+        host_part = key.split("#")[0]
+        root = self.root_domain_of(host_part)
+        if root in self._domain_store and root != key:
+            if rejected_clearance:
+                root_cookies = self._domain_store[root].get("cookies", {})
+                if root_cookies.get("cf_clearance") == rejected_clearance:
+                    root_cookies.pop("cf_clearance", None)
                     removed = True
+                    if not root_cookies:
+                        self._domain_store.pop(root, None)
+            elif purge_root:
+                self._domain_store.pop(root, None)
+                removed = True
         return removed
 
     def all_domains(self) -> dict[str, dict]:
