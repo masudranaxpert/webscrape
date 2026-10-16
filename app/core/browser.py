@@ -100,9 +100,8 @@ _IS_BYPASSED_JS = """() => {
             '#challenge-running, #challenge-form, form#challenge-form, #challenge-stage, #cf-wrapper, .cf-browser-verification, #trk_jschal_js'
         )) return false;
 
-        // Challenge platform orchestrator scripts and globals
+        // Challenge platform orchestrator globals
         if (window._cf_chl_opt || window.__cf_chl_opt || window._cf_chl_ctx) return false;
-        if (document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')) return false;
 
         // Challenge iframe inside challenge container
         if (document.querySelector('#challenge-stage iframe, #challenge-form iframe, #cf-wrapper iframe')) return false;
@@ -716,7 +715,10 @@ class BrowserPool:
                 k: v for k, v in resp_headers.items()
                 if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")
             }
-            status = 200 if bypassed else (status_code if status_code != 200 else 403)
+            if bypassed:
+                status = status_code if (last_doc or status_code != 403) else 200
+            else:
+                status = status_code if status_code != 200 else 403
             if bypassed and selector and not await self._has_selector(page, selector):
                 notes.append(f"Timed out waiting for selector '{selector}' (cf_wait={cf_wait}s)")
                 logger.warning("Selector '%s' never appeared on %s within cf_wait budget", selector, url)
