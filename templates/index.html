@@ -167,7 +167,7 @@
         <div class="studio-presets">
           <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Presets:</span>
           <button type="button" class="btn-preset" data-preset="httpbin">HTTPBin GET</button>
-          <button type="button" class="btn-preset" data-preset="target-site">target-site Protected</button>
+          <button type="button" class="btn-preset" data-preset="redirects">Redirect Chain</button>
           <button type="button" class="btn-preset" data-preset="turnstile">Turnstile Token</button>
           <button type="button" class="btn-preset" data-preset="post_json">POST JSON Body</button>
         </div>
@@ -784,7 +784,7 @@
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">string | null</span></td>
                   <td><span class="param-default">null</span></td>
-                  <td>CSS selector to click once the page/Turnstile is resolved before capturing DOM. Automatically handles in-page button submission and redirects.</td>
+                  <td>CSS selector to click once the page/Turnstile is resolved. Waits while the element is disabled, then reports what the click did: every navigation hop in <code>redirect_chain</code> (url, status, location) and the file's address if it started a download (the file itself is never fetched). Implies <code>force_browser</code>.</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">cookie_ttl</span></td>
@@ -889,7 +889,9 @@
     <span class="json-key">"preset"</span>: <span class="json-string">"chrome-latest-windows"</span>,
     <span class="json-key">"cf_bypass_attempted"</span>: <span class="json-boolean">false</span>,
     <span class="json-key">"cache_hit"</span>: <span class="json-boolean">true</span>,                <span class="json-comment">// True if served from cached session</span>
-    <span class="json-key">"cookies_used"</span>: <span class="json-number">2</span>
+    <span class="json-key">"cookies_used"</span>: <span class="json-number">2</span>,
+    <span class="json-key">"body_truncated"</span>: <span class="json-boolean">false</span>,        <span class="json-comment">// true: body skipped/cut (video, archive, over MAX_RESPONSE_MB)</span>
+    <span class="json-key">"body_note"</span>: <span class="json-null">null</span>               <span class="json-comment">// reason when body_truncated is true</span>
   }
 }</code></pre>
           </div>
@@ -1020,7 +1022,7 @@
               When a Cloudflare Turnstile challenge is solved, clearance tokens and sessions are stored automatically. Subsequent requests reuse these cookies to hit the fast-path (300ms) without opening a browser.
             </p>
             <ul>
-              <li><strong>Dual-Store Architecture (Zero LRU Pollution)</strong>: Separates long-lived domain caches (64 slots, 24h TTL) from ephemeral scraping sessions (256 slots, 10m TTL). High-volume task session churn never evicts root domain clearances (such as <code>cinefreak.net</code>).</li>
+              <li><strong>Dual-Store Architecture (Zero LRU Pollution)</strong>: Separates long-lived domain caches (64 slots, 24h TTL) from ephemeral scraping sessions (256 slots, 10m TTL). High-volume task session churn never evicts root domain clearances (such as <code>example.com</code>).</li>
               <li><strong>Strict Session Isolation</strong>: When <code>session_id</code> is provided (e.g. <code>"task-dl-1"</code>), the request runs in an isolated sandbox. It never falls back to the root domain and never writes to root, preventing session cookie contamination (like <code>ci_session</code>) and bot-score cross-linking via <code>__cf_bm</code>.</li>
               <li><strong>Synchronized Root Clearance</strong>: Non-session domain clearances write strictly <code>cf_clearance</code> to the root domain, atomically synchronizing matching User-Agent and proxy identities. When a challenge wall is encountered, rejected clearance is immediately purged from both the local session and root storage.</li>
               <li><strong><code>cookie_allowlist</code></strong>: Array of allowed cookie names or glob/regex wildcard patterns (e.g. <code>["cf_*", "__cf*", "*session*", "PHPSESSID"]</code>). Non-essential tracking cookies and analytics are pruned automatically.</li>
@@ -1088,6 +1090,21 @@
             <p>
               Fine-tune the wire-level network behavior, fingerprint profiles and User-Agent headers.
             </p>
+            <div class="callout callout-info">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <div>
+                <strong>Anti scrapes, it does not download.</strong> Video, audio, image, archive and attachment
+                responses, and any body over <code>MAX_RESPONSE_MB</code> (16), are never read into memory. You still
+                get <code>status_code</code>, <code>headers</code> and <code>url</code> (the final address after
+                redirects, ideal for download-gateway links) with an empty <code>body</code>, plus
+                <code>meta.body_truncated: true</code> and a <code>meta.body_note</code> reason. Download the file from
+                that <code>url</code> yourself.
+              </div>
+            </div>
             <ul>
               <li><strong><code>user_agent</code></strong>: Pass a custom User-Agent string to override the preset's
                 default. If omitted, the authentic preset User-Agent is sent.</li>

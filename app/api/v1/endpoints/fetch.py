@@ -214,6 +214,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 body=body,
                 cookies=result.cookies or effective_cookies,
                 url=result.final_url,
+                redirect_chain=result.redirect_chain or None,
                 protocol=result.protocol,
                 extracted=_extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector and not result.error else None,
                 logs=logs,
@@ -225,6 +226,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                     cache_hit=cache_hit,
                     cookies_used=len(effective_cookies),
                     user_agent=effective_ua,
+                    body_truncated=result.truncated,
+                    body_note=result.note,
                 ),
             )
 
@@ -288,6 +291,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 body=result.body,
                 cookies=result.cookies or effective_cookies,
                 url=result.final_url,
+                redirect_chain=result.redirect_chain or None,
                 protocol=result.protocol,
                 extracted=extracted,
                 logs=logs,
@@ -299,6 +303,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                     cache_hit=cache_hit,
                     cookies_used=len(effective_cookies),
                     user_agent=effective_ua,
+                    body_truncated=result.truncated,
+                    body_note=result.note,
                 ),
             )
 
@@ -320,7 +326,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             logs.append("[ESCALATE] Challenge detected -> Escalating to Browser Solver")
 
         if result.cf_wall and cache_hit:
-            # Preserve application session cookies so multi-step stateful flows (e.g. ci_session) do not expire
+            # Preserve application session cookies so multi-step stateful flows (e.g. a login session) do not expire
             app_cookies = {
                 k: v for k, v in cached_cookies.items()
                 if not (k.startswith("cf_") or k.startswith("__cf"))
@@ -388,6 +394,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 body=retry_res.body,
                 cookies=retry_res.cookies or retry_cookies,
                 url=retry_res.final_url,
+                redirect_chain=retry_res.redirect_chain or None,
                 protocol=retry_res.protocol,
                 extracted=extracted,
                 logs=logs,
@@ -399,6 +406,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                     cache_hit=True,
                     cookies_used=len(retry_cookies),
                     user_agent=retry_headers.get("user-agent", ""),
+                    body_truncated=retry_res.truncated,
+                    body_note=retry_res.note,
                 ),
             )
         else:
@@ -468,6 +477,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             body=br.body,
             cookies=br.cookies,
             url=br.final_url,
+            redirect_chain=br.redirect_chain or None,
             protocol=None,
             extracted=extracted,
             turnstile_token=br.turnstile_token,
@@ -483,6 +493,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 cache_hit=False,
                 cookies_used=len(effective_cookies),
                 user_agent=br.user_agent or effective_ua,
+                body_truncated=br.note is not None,
+                body_note=br.note,
             ),
         )
 

@@ -41,6 +41,8 @@ class FetcherResult:
     # True when the body was not (fully) read: binary/oversized response. status, headers and final_url stay valid
     truncated: bool = False
     note: str | None = None
+    # Every hop of a redirect chain: {"url", "status", "location"}; empty when there was no redirect
+    redirect_chain: list[dict] = dataclasses.field(default_factory=list)
 
 
 def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -> bool:
@@ -191,7 +193,8 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
 
     httpcloak's stream API does not follow redirects, so they are followed here, hop by hop, without reading any
     redirect body (browser rules: 301/302/303 turn a POST into a GET, 307/308 keep the method).
-    Returns (response, body_bytes, note). `note` is set when the body was skipped or cut at the cap.
+    Returns (response, body_bytes, note, redirect_chain). `note` is set when the body was skipped or cut at the cap;
+    the chain lists every hop (empty when there was no redirect).
     Every native call is shielded and tracked, so a timeout never frees memory under a running goroutine.
     """
     start = time.monotonic()
@@ -200,6 +203,7 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
     current_url, current_method, current_payload = url, method, payload
 
     stream = None
+    chain: list[dict] = []
     for hop in range(_MAX_REDIRECTS + 1):
         remaining = max(1, int(timeout - (time.monotonic() - start)))
         # Per-request cookies belong to the origin host; a redirect to another site must not receive them
@@ -217,6 +221,11 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
 
         flat = _flatten_headers(stream.headers)
         location = _header(flat, "location")
+        chain.append({
+            "url": current_url,
+            "status": stream.status_code,
+            "location": urljoin(current_url, location) if location and stream.status_code in _REDIRECT_STATUSES else None,
+        })
         if stream.status_code in _REDIRECT_STATUSES and location and hop < _MAX_REDIRECTS:
             current_url = urljoin(current_url, location)
             if stream.status_code == 303 or (stream.status_code in (301, 302) and current_method not in ("GET", "HEAD")):
@@ -229,7 +238,7 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
     reason = _skip_reason(current_method, flat, declared, max_bytes)
     if reason:
         logger.info("httpcloak: %s -> %s; body not read (status %s)", current_url, reason, stream.status_code)
-        return stream, b"", reason
+        return stream, b"", reason, (chain if len(chain) > 1 else [])
 
     reader = asyncio.ensure_future(asyncio.to_thread(_read_capped, stream, max_bytes))
     tracker.watch(reader)
@@ -237,7 +246,7 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
     note = f"body cut at {max_bytes / 1048576:.0f} MB limit" if capped else None
     if capped:
         logger.warning("httpcloak: %s -> %s", current_url, note)
-    return stream, data, note
+    return stream, data, note, (chain if len(chain) > 1 else [])
 
 
 def _sanitize_http_version(http_version: str | None) -> str | None:
@@ -312,7 +321,7 @@ async def httpcloak_fetch(
         # The native side owns the deadline (timeout=); the outer guard only catches a native hang and is shielded,
         # because cancelling the native future makes its completion callback hit a dead future (InvalidStateError)
         try:
-            resp, data, note = await _request(
+            resp, data, note, chain = await _request(
                 tracker, session, method=method.upper(), url=url, headers=req_headers, payload=payload,
                 cookies=cookies or {}, timeout=int(timeout), max_bytes=int(MAX_RESPONSE_MB * 1024 * 1024),
             )
@@ -432,6 +441,7 @@ async def httpcloak_fetch(
             elapsed_ms=elapsed_ms,
             truncated=note is not None,
             note=note,
+            redirect_chain=chain,
         )
     finally:
         tracker.release()

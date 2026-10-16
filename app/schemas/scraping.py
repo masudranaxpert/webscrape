@@ -46,6 +46,32 @@ class RequestMeta(BaseModel):
         description="Effective User-Agent header string used for the request.",
         examples=["Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/134.0.0.0 Safari/537.36"],
     )
+    body_truncated: bool = Field(
+        default=False,
+        description=(
+            "True when the HTTP engine did not return the full body: video/audio/image/archive/attachment responses "
+            "and bodies over MAX_RESPONSE_MB are not read at all, unknown-length bodies are cut at the limit. "
+            "`status_code`, `headers` and `url` (the final redirect target) are still valid."
+        ),
+        examples=[False],
+    )
+    body_note: str | None = Field(
+        default=None,
+        description="Why the body was skipped or cut (set together with `body_truncated`).",
+        examples=[None],
+    )
+
+
+class RedirectHop(BaseModel):
+    """One navigation step: where the engine went, what the server answered, and where it pointed next."""
+
+    url: str = Field(..., description="Address requested at this step.", examples=["https://example.com/go"])
+    status: int = Field(..., description="HTTP status the server answered with.", examples=[302])
+    location: str | None = Field(
+        default=None,
+        description="Absolute `Location` target when this step was a redirect, otherwise null.",
+        examples=["https://example.com/next"],
+    )
 
 
 class FetchRequest(BaseModel):
@@ -103,7 +129,7 @@ class FetchRequest(BaseModel):
     click_selector: str | None = Field(
         default=None,
         description="CSS selector to click once the page/Turnstile is ready before capturing DOM. Implies force_browser.",
-        examples=["#go-btn"],
+        examples=["button#download"],
     )
     page_load_state: str = Field(
         default="complete",
@@ -161,7 +187,7 @@ class FetchRequest(BaseModel):
     cookie_allowlist: list[str] | None = Field(
         default=None,
         description="Allowed cookie names or glob/regex patterns (e.g. ['cf_*', '__cf*', 'PHPSESSID', 'custom_token*']). If None, defaults to essential bypass & session patterns.",
-        examples=[["cf_*", "__cf*", "PHPSESSID", "movielinkbd_vote_browser_*"]],
+        examples=[["cf_*", "__cf*", "PHPSESSID", "my_site_pref_*"]],
     )
     cookie_limit: int = Field(
         default=35,
@@ -276,8 +302,18 @@ class FetchResponse(BaseModel):
     )
     url: str = Field(
         ...,
-        description="Final resolved URL after redirects.",
+        description=(
+            "Final resolved URL after redirects. For a download-gateway link this is the file's address: when the page "
+            "turns into a file download the file itself is never fetched, only this URL is returned."
+        ),
         examples=["https://example.com/items"],
+    )
+    redirect_chain: list[RedirectHop] | None = Field(
+        default=None,
+        description=(
+            "Every step of the redirect chain (HTTP engine) or of the browser's navigation including after "
+            "`click_selector` (browser engine): url, status and `location` per hop. Null when there was no redirect."
+        ),
     )
     protocol: str | None = Field(
         default=None,

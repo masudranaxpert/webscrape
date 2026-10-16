@@ -217,6 +217,7 @@ def test_normal_pages_decode_with_declared_charset_and_are_not_truncated():
             body="<p>হ্যালো Hello</p>".encode("utf-8")))
         res = _run(fetcher.httpcloak_fetch("https://example.com/", timeout=5))
         assert res.body == "<p>হ্যালো Hello</p>" and not res.truncated and res.note is None
+        assert res.redirect_chain == [], "no redirect, so no chain"
 
         _setup(0.01, 1.0, factory=lambda s: _FakeStream(
             s, headers={"content-type": "text/html; charset=windows-1252"}, content_length=4, body="caf\xe9".encode("cp1252")))
@@ -267,6 +268,11 @@ def test_redirects_are_followed_without_reading_their_bodies():
         urls = [c["url"] for c in s.calls]
         assert urls == ["https://start.example/a", "https://start.example/step2", "https://other.example/final"], urls
         assert res.status_code == 200 and res.body == "<p>done</p>" and res.final_url == "https://other.example/final"
+        assert [(h["url"], h["status"], h["location"]) for h in res.redirect_chain] == [
+            ("https://start.example/a", 302, "https://start.example/step2"),
+            ("https://start.example/step2", 301, "https://other.example/final"),
+            ("https://other.example/final", 200, None),
+        ]
         assert all(c["allow_redirects"] is False for c in s.calls)
         assert s.calls[0]["cookies"] == {"sid": "1"} and s.calls[1]["cookies"] == {"sid": "1"}
         assert s.calls[2]["cookies"] == {}, "per-request cookies leaked to another site"

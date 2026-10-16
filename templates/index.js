@@ -411,10 +411,10 @@ document.querySelectorAll('.btn-preset').forEach(btn => {
       requestMethod.className = 'method-select method-get';
       targetUrl.value = 'https://httpbin.org/get';
       document.getElementById('cfgEngineMode').value = 'auto';
-    } else if (preset === 'target-site') {
+    } else if (preset === 'redirects') {
       requestMethod.value = 'GET';
       requestMethod.className = 'method-select method-get';
-      targetUrl.value = 'https://sub.target-site.example/f/RX7XLEBW51z-HrctS8R6yhz84Nvkvm_qflSYpeFJSAo5M6SXWF-JrwuSYhJEtg';
+      targetUrl.value = 'https://httpbin.org/redirect/3';
       document.getElementById('cfgEngineMode').value = 'auto';
     } else if (preset === 'turnstile') {
       requestMethod.value = 'GET';

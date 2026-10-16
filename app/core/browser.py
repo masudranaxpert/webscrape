@@ -10,6 +10,7 @@ import os
 import re
 import time
 from typing import Any
+from urllib.parse import urljoin
 
 import cloakbrowser as cb
 from cloakbrowser.geoip import resolve_proxy_exit_ip
@@ -29,6 +30,7 @@ from app.core.config import (
     MAX_TABS,
 )
 from app.core.cookie_store import store
+from app.core.fetcher import _skip_reason
 from app.core.proxy import browser_proxy, is_proxy_error, mask_proxy, proxy_key, redact
 
 logger = logging.getLogger(__name__)
@@ -150,6 +152,10 @@ class BrowserResult:
     turnstile_sitekey: str | None = None
     turnstile_solved_at: float | None = None
     token_submissions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # Every main-frame navigation the browser made: {"url", "status", "location"} per hop (redirects included)
+    redirect_chain: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # Set when the page turned into a file download: the file was not fetched, final_url is its address
+    note: str | None = None
 
 
 @dataclasses.dataclass
@@ -183,10 +189,24 @@ class BrowserJobTimeout(RuntimeError):
 
 # Licensed-launch retries when the single seat is still held by a just-closed process
 _SEAT_RETRIES = 2
-# Origin statuses that mean "past Cloudflare, but the site itself refuses" (e.g. target-site's per-IP "Too many
-# downloads" page is a 429): waiting out cf_wait for a selector or token on such a page only wastes the budget
+# Origin statuses that mean "past Cloudflare, but the site itself refuses" (e.g. a per-IP rate limit answers 429):
+# waiting out cf_wait for a selector or token on such a page only wastes the budget
 _ORIGIN_REFUSAL_STATUSES = (429,)
 _SEAT_RETRY_DELAY_SEC = 2.5
+
+
+_MAX_CHAIN = 25
+# After a click: longest wait for the page's reaction, and how long navigation must stay quiet to count as finished
+_POST_CLICK_MAX_SEC = 15.0
+_POST_CLICK_SETTLE_SEC = 1.5
+
+
+async def _cancel_download(download: Any) -> None:
+    """Cancel a browser download so a multi-GB file never reaches the disk."""
+    try:
+        await download.cancel()
+    except Exception:
+        pass
 
 
 async def _bounded(awaitable: Any, timeout: float = BROWSER_CALL_TIMEOUT_SEC) -> Any:
@@ -698,6 +718,29 @@ class BrowserPool:
 
         return False
 
+    async def _await_click_outcome(self, page: Any, chain: list, downloads: list) -> str:
+        """After a click, wait for what the page does next: a download, one or more navigations, or nothing.
+
+        Generic for any site: ends once a download starts, or once navigation has been quiet for a moment after the
+        URL changed (so multi-hop redirects finish), or after a bounded wait if the click triggered nothing.
+        """
+        start_url = page.url
+        seen = len(chain)
+        last_change: float | None = None
+        deadline = time.monotonic() + _POST_CLICK_MAX_SEC
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.4)
+            if downloads:
+                return "file download started"
+            now = time.monotonic()
+            if len(chain) != seen:
+                seen, last_change = len(chain), now
+            elif last_change is None and page.url != start_url:
+                last_change = now
+            if last_change is not None and now - last_change >= _POST_CLICK_SETTLE_SEC:
+                return f"navigated to {page.url}"
+        return "no navigation within the wait window"
+
     async def _run_context(
         self,
         worker: _Worker,
@@ -761,6 +804,30 @@ class BrowserPool:
                     pass
 
             page.on("response", _on_response)
+
+            # Every main-frame navigation (redirect hops included) and any file download the page starts. A download is
+            # cancelled right away: Anti reports where the file lives (its URL), it never fetches it
+            chain: list[dict[str, Any]] = []
+            downloads: list[dict[str, str]] = []
+
+            def _on_nav_response(r: Any) -> None:
+                try:
+                    if r.request.resource_type == "document" and r.frame == page.main_frame and len(chain) < _MAX_CHAIN:
+                        location = (r.headers or {}).get("location")
+                        chain.append({
+                            "url": r.url,
+                            "status": r.status,
+                            "location": urljoin(r.url, location) if location else None,
+                        })
+                except Exception:
+                    pass
+
+            def _on_download(download: Any) -> None:
+                downloads.append({"url": download.url, "filename": download.suggested_filename})
+                asyncio.ensure_future(_cancel_download(download))
+
+            page.on("response", _on_nav_response)
+            page.on("download", _on_download)
 
             # Sites often POST the token themselves the instant it is issued, then wipe the widget: record those
             # submissions (token + what the server answered) since the DOM no longer has them
@@ -829,7 +896,10 @@ class BrowserPool:
             except Exception as nav_err:
                 if proxy and is_proxy_error(str(nav_err)):
                     raise RuntimeError(f"Proxy {mask_proxy(proxy)} failed: {redact(str(nav_err).splitlines()[0])}") from nav_err
-                logger.warning("cloakbrowser navigation warning on %s: %s", url, redact(str(nav_err)))
+                if "Download is starting" in str(nav_err) or downloads:
+                    logger.info("cloakbrowser: %s is a file download; not fetching it", url)
+                else:
+                    logger.warning("cloakbrowser navigation warning on %s: %s", url, redact(str(nav_err)))
 
             # Settle period for challenge scripts to execute
             await asyncio.sleep(2.5)
@@ -1071,14 +1141,12 @@ class BrowserPool:
                     has_target = bool(await _bounded(page.eval_on_selector(click_selector, "el => true")))
 
                 if has_target:
+                    # A button gated by a challenge enables itself once the widget is solved: wait for that
                     for _ in range(15):
                         btn_disabled = True
-                        note = ""
-                        with contextlib.suppress(Exception):
-                            note = (await _bounded(page.eval_on_selector("#note", "el => el.innerText")) or "").lower()
                         with contextlib.suppress(Exception):
                             btn_disabled = await _bounded(page.eval_on_selector(click_selector, "el => el.disabled"))
-                        if not btn_disabled or "verified" in note or ts_token:
+                        if not btn_disabled or ts_token:
                             break
                         await asyncio.sleep(1.0)
                 else:
@@ -1106,34 +1174,36 @@ class BrowserPool:
 
                 if clicked:
                     notes.append(f"Clicked selector: {click_selector}")
-                    with contextlib.suppress(Exception):
-                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
-                    for _ in range(15):
-                        await asyncio.sleep(1.0)
-                        final_url = page.url or final_url
-                        if any(k in final_url for k in ("video-downloads", "googleusercontent", "r2.dev", "vidzer", ".mkv", ".mp4")):
-                            break
-                        try:
-                            html_check = await _bounded(page.content())
-                            if any(k in html_check for k in ("video-downloads", "googleusercontent", "r2.dev", "vidzer", ".mkv", ".mp4")):
-                                break
-                        except Exception:
-                            pass
-                        if final_url != url:
-                            break
+                    outcome = await self._await_click_outcome(page, chain, downloads)
+                    notes.append(f"After click: {outcome}")
+                    final_url = page.url or final_url
 
             body = ""
-            for _ in range(5):
-                try:
-                    body = await _bounded(page.content())
+            result_note: str | None = None
+            # A binary main document (video, archive, attachment...) is the same case as a download: same rule as the
+            # HTTP engine. Chromium opens playable media in its own player page and keeps buffering it, so stop here
+            doc_headers = {str(k).lower(): str(v) for k, v in (last_doc.get("headers") or {}).items()}
+            media_reason = None if downloads else _skip_reason("GET", doc_headers, None, 1 << 62)
+            if downloads or media_reason:
+                if downloads:
+                    final_url = downloads[-1]["url"]
+                    result_note = f"navigation became a file download ({downloads[-1]['filename'] or 'file'}); file not fetched"
+                else:
                     final_url = page.url or final_url
-                    break
-                except Exception:
-                    await asyncio.sleep(1.0)
-
-            if "too many download pages were opened from your network" in body.lower():
-                status = 429
-                notes.append("Origin IP download rate limit detected in body")
+                    result_note = f"{media_reason.replace(' not read', '')}; file not fetched"
+                with contextlib.suppress(Exception):
+                    await _bounded(page.goto("about:blank", timeout=5000))  # stop the player buffering the file
+                notes.append(result_note)
+                if status_code in (0, 301, 302, 303, 307, 308):
+                    status = 200
+            else:
+                for _ in range(5):
+                    try:
+                        body = await _bounded(page.content())
+                        final_url = page.url or final_url
+                        break
+                    except Exception:
+                        await asyncio.sleep(1.0)
 
             raw_cookies = await _bounded(context.cookies())
             harvested = {c["name"]: c["value"] for c in raw_cookies}
@@ -1169,6 +1239,8 @@ class BrowserPool:
             turnstile_sitekey=ts_sitekey,
             turnstile_solved_at=ts_solved_at,
             token_submissions=submissions,
+            redirect_chain=chain if len(chain) > 1 or any(h["location"] for h in chain) else [],
+            note=result_note,
         )
 
 

@@ -40,7 +40,7 @@ Docker: `docker compose up -d --build`. Interactive docs are at `/docs`.
 | `force_browser` | Skip the HTTP path |
 | `force_http` | HTTP only: never escalate to the browser, return the raw response (403/challenge included). Cannot combine with `force_browser` |
 | `wait_for_selector` | Wait until an element exists in the live DOM (useful for client-rendered dynamic content) |
-| `click_selector` | Click a selector after challenge resolution to trigger in-page redirects or submissions |
+| `click_selector` | Click an element once the page is ready (waits while it is disabled, e.g. gated by a challenge) and report what the click did: every navigation hop in `redirect_chain`, the file URL if it started a download |
 | `cf_wait` | Seconds the solver may spend (default 25.0, exits immediately once resolved) |
 | `session_id` | Isolated session namespace to prevent cookie collisions between concurrent scraping flows |
 | `proxy` | Egress proxy (`http://`, `https://`, `socks5://`, `socks5h://`, credentials allowed). Omit for the `DEFAULT_PROXY` rule, `"direct"` to bypass it. See [Proxies](#proxies) |
@@ -86,8 +86,28 @@ Use residential or ISP proxies for Cloudflare-protected sites: datacenter and VP
 
 ```bash
 DEFAULT_PROXY=http://user:pass@residential.example:8000
-DEFAULT_PROXY_DOMAINS=target-site.site,example.com
+DEFAULT_PROXY_DOMAINS=example.com,example.org
 ```
+
+### Click and capture the redirect
+
+For a button that leads to another address (a download gateway, a "continue" link), send `click_selector`. Anti clicks it, follows whatever the page does next and returns `url` (where it ended up) plus `redirect_chain`: one entry per navigation step with its `status` and `location`. If the click starts a file download, or lands on a video, archive or other binary, the file is not fetched: `url` is the file's address and `meta.body_note` says so. The HTTP engine reports redirect chains the same way, so you read one shape whichever engine ran.
+
+```json
+{ "url": "https://example.com/start", "click_selector": "button#continue" }
+```
+```json
+{ "url": "https://cdn.example/movie.mkv",
+  "redirect_chain": [
+    { "url": "https://example.com/start", "status": 200, "location": null },
+    { "url": "https://example.com/go",    "status": 302, "location": "https://cdn.example/movie.mkv" },
+    { "url": "https://cdn.example/movie.mkv", "status": 200, "location": null } ],
+  "meta": { "body_truncated": true, "body_note": "binary response (video/x-matroska); file not fetched" } }
+```
+
+### Large and binary responses
+
+Anti is a scraper, not a downloader. The HTTP engine never loads a video, audio, image, archive or attachment into memory, nor any body above `MAX_RESPONSE_MB` (16): the response keeps `status_code`, `headers` and `url` (the final address after redirects, which is what you need from a download-gateway link) with an empty `body`, and sets `meta.body_truncated: true` plus a `meta.body_note` reason. Bodies of unknown length are cut at the limit. Download the file yourself from the returned `url`.
 
 Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{domain}`. Health check: `GET /health`.
 
@@ -97,6 +117,7 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | --- | --- | --- |
 | `API_KEY` | | Required for `/fetch` and `/cookies` |
 | `PORT` | `8000` | |
+| `DEBUG` | `false` | Verbose logs; also lets the app start without `API_KEY`. Keep `false` in production |
 | `MAX_TABS` | `5` | Concurrent browser tabs across all browser processes |
 | `MAX_BROWSERS` | `1` | Browser processes alive at once, one per egress identity. Keep at or below your CloakBrowser license seats |
 | `BROWSER_JOB_OVERHEAD_SEC` | `90` | Hard ceiling per browser job = `cf_wait` + this (queue wait included). A hung tab is cancelled, gets `504`, and its process is replaced. Keep the total below your client's HTTP timeout |
@@ -113,7 +134,9 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | `BROWSER_HEADLESS` | `false` | Default false: runs headfully inside Xvfb (:99) with Openbox for human-like screen geometry |
 | `CLOAKBROWSER_LICENSE_KEY` | | Optional: unlocks latest Chromium build (v154+). Get a free key at [cloakbrowser.dev/free](https://cloakbrowser.dev/free). Without a key, falls back to v146. |
 | `DEFAULT_COOKIE_TTL` | `86400` | Seconds |
-| `MAX_CACHED_DOMAINS` | `64` | |
+| `MAX_CACHED_DOMAINS` | `64` | Cached domains before the least recently used is dropped |
+| `DEFAULT_SESSION_TTL` | `600` | Seconds an isolated `session_id` cookie jar lives |
+| `MAX_CACHED_SESSIONS` | `256` | Cached `session_id` jars before the least recently used is dropped |
 
 ### CloakBrowser Engine & License
 
