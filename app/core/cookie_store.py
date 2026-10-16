@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import logging
 import re
 import time
 from collections import OrderedDict
 from urllib.parse import urlparse
+
+try:
+    import tldextract
+    # Pre-configure with bundled snapshot to avoid network requests at runtime
+    _tld_extractor = tldextract.TLDExtract(suffix_list_urls=None)
+except Exception:
+    _tld_extractor = None
 
 from app.core.config import (
     DEFAULT_COOKIE_TTL,
@@ -105,9 +113,18 @@ class CookieStore:
 
     @staticmethod
     def root_domain_of(host: str) -> str:
-        """Extract root domain (eTLD+1) for shared wildcard cookies."""
-        parts = host.strip().lower().split(".")
-        return ".".join(parts[-2:]) if len(parts) > 1 else host
+        """Extract root domain (eTLD+1) for shared wildcard cookies using Public Suffix List."""
+        clean_host = host.strip().lower()
+        if _tld_extractor is not None:
+            with contextlib.suppress(Exception):
+                ext = _tld_extractor(clean_host)
+                if ext.registered_domain:
+                    return ext.registered_domain
+        # Fallback for common multi-part TLDs (.co.uk, .com.au, etc.) if tldextract unavailable
+        parts = clean_host.split(".")
+        if len(parts) > 2 and parts[-2] in ("co", "com", "org", "net", "edu", "gov") and len(parts[-1]) == 2:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:]) if len(parts) > 1 else clean_host
 
     @staticmethod
     def domain_of(url: str) -> str:

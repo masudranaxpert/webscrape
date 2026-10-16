@@ -178,7 +178,6 @@ class BrowserPool:
         self._browser: Any | None = None
         self._browser_created_at: float = 0.0
         self._active_contexts: int = 0
-        self._retiring_browsers: set[Any] = set()
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
@@ -215,7 +214,6 @@ class BrowserPool:
         if browser is not None:
             with contextlib.suppress(Exception):
                 await browser.close()
-            self._retiring_browsers.discard(browser)
 
     async def _launch_browser(self, launch_kwargs: dict[str, Any]) -> Any:
         """Launch CloakBrowser instance with automatic fallback to unauthenticated mode on license error."""
@@ -271,10 +269,11 @@ class BrowserPool:
                 self._browser = await self._launch_browser(launch_kwargs)
                 self._browser_created_at = time.monotonic()
 
+            self._active_contexts += 1
             return self._browser
 
     async def stop(self) -> None:
-        """Clean up all active and retiring browser resources."""
+        """Clean up all active browser resources."""
         if self._launch_lock is None:
             self._launch_lock = asyncio.Lock()
         async with self._launch_lock:
@@ -282,10 +281,6 @@ class BrowserPool:
                 with contextlib.suppress(Exception):
                     await self._browser.close()
                 self._browser = None
-            for retiring in list(self._retiring_browsers):
-                with contextlib.suppress(Exception):
-                    await retiring.close()
-            self._retiring_browsers.clear()
             self._active_contexts = 0
         logger.info("BrowserPool stopped")
 
@@ -300,6 +295,9 @@ class BrowserPool:
         capture_token: bool = False,
         token_field_names: list[str] | None = None,
         click_selector: str | None = None,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: str | None = None,
     ) -> BrowserResult:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
         if self._sem is None:
@@ -318,6 +316,9 @@ class BrowserPool:
                 capture_token,
                 token_field_names,
                 click_selector,
+                method,
+                headers,
+                body,
             )
 
     async def _is_bypassed(self, page: Any) -> bool:
@@ -422,6 +423,9 @@ class BrowserPool:
         capture_token: bool = False,
         token_field_names: list[str] | None = None,
         click_selector: str | None = None,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: str | None = None,
     ) -> BrowserResult:
         t0 = time.monotonic()
         proxy_cfg = _parse_proxy(proxy)
@@ -444,6 +448,9 @@ class BrowserPool:
         if self._headless:
             browser_args.append("--ozone-override-screen-size=1920,1080")
 
+        # ponytail: BrowserPool shares one Chromium process across tabs to prevent CloakBrowser license limit (code 76).
+        # Per-context proxy is configured in new_context(proxy=proxy_cfg). Per-request geoip/timezone requires dedicated
+        # process instances (cb.launch_context_async); upgrade to multi-process pool when per-tab timezone isolation is needed.
         launch_kwargs: dict[str, Any] = {
             "headless": self._headless,
             "humanize": True,
@@ -455,10 +462,11 @@ class BrowserPool:
             launch_kwargs["geoip"] = True
 
         context = None
+        browser_acquired = False
         selector = (wait_for_selector or "").strip() or None
         notes: list[str] = []
         harvested: dict[str, str] = {}
-        body: str = ""
+        body_text: str = ""
         final_url: str = url
         status_code = 200
         status: int = 200
@@ -472,9 +480,7 @@ class BrowserPool:
 
         try:
             browser = await self._get_browser(launch_kwargs)
-            if self._launch_lock is not None:
-                async with self._launch_lock:
-                    self._active_contexts += 1
+            browser_acquired = True
 
             context_kwargs: dict[str, Any] = {
                 "locale": "en-US",
@@ -547,6 +553,20 @@ class BrowserPool:
                 ]
                 with contextlib.suppress(Exception):
                     await context.add_cookies(cookie_list)
+
+            if headers:
+                with contextlib.suppress(Exception):
+                    await page.set_extra_http_headers(headers)
+
+            if method and method.upper() == "POST":
+                async def _handle_initial_post(route: Any) -> None:
+                    req = route.request
+                    if req.is_navigation_request() and req.url.split("#")[0] == url.split("#")[0]:
+                        await route.continue_(method="POST", post_data=body or "")
+                    else:
+                        await route.continue_()
+                with contextlib.suppress(Exception):
+                    await page.route(url, _handle_initial_post)
 
             logger.info("cloakbrowser: navigating -> %s (timeout=%.1fs)", url, timeout_ms / 1000)
             try:
@@ -799,20 +819,21 @@ class BrowserPool:
 
                 clicked = False
                 try:
-                    clicked = await page.evaluate(f"""() => {{
-                        const btn = document.querySelector('{click_selector}');
-                        if (btn) {{
+                    _CLICK_ACTION_JS = """(sel) => {
+                        const btn = document.querySelector(sel);
+                        if (btn) {
                             btn.disabled = false;
                             btn.click();
                             return true;
-                        }}
+                        }
                         const f = document.querySelector('form');
-                        if (f) {{
+                        if (f) {
                             f.submit();
                             return true;
-                        }}
+                        }
                         return false;
-                    }}""")
+                    }"""
+                    clicked = await page.evaluate(_CLICK_ACTION_JS, click_selector)
                 except Exception as ce:
                     logger.warning("Click evaluation failed: %s", ce)
 
@@ -842,6 +863,10 @@ class BrowserPool:
                 except Exception:
                     await asyncio.sleep(1.0)
 
+            if "too many download pages were opened from your network" in body.lower():
+                status = 429
+                notes.append("Origin IP download rate limit detected in body")
+
             raw_cookies = await context.cookies()
             harvested = {c["name"]: c["value"] for c in raw_cookies}
 
@@ -857,12 +882,9 @@ class BrowserPool:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(asyncio.shield(context.close()), timeout=5.0)
 
-            if self._launch_lock is not None:
+            if browser_acquired and self._launch_lock is not None:
                 async with self._launch_lock:
                     self._active_contexts = max(0, self._active_contexts - 1)
-                    if self._active_contexts == 0 and self._retiring_browsers:
-                        for retiring in list(self._retiring_browsers):
-                            await self._close_browser_safely(retiring)
 
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.info(

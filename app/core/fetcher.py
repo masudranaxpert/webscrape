@@ -42,12 +42,15 @@ class FetcherResult:
 
 def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -> bool:
     """Identify Cloudflare Turnstile and challenge interstitials."""
+    headers_dict = {str(k).lower(): str(v).lower() for k, v in (headers or {}).items()}
+
     # Cloudflare marks every challenge it serves with `cf-mitigated: challenge`, even on HTTP 200
-    if headers and any(k.lower() == "cf-mitigated" and "challenge" in str(v).lower() for k, v in headers.items()):
+    if "cf-mitigated" in headers_dict and "challenge" in headers_dict["cf-mitigated"]:
         return True
 
     if not body:
-        return status in (403, 429, 503)
+        # Empty body on 403 with Cloudflare server header indicates CF edge rejection
+        return status == 403 and "cloudflare" in headers_dict.get("server", "")
 
     body_lower = body.lower()
 
@@ -56,14 +59,11 @@ def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -
         return True
 
     # Challenge DOM indicators
-    has_challenge_element = any(ind in body for ind in _CHALLENGE_SUBSTRINGS)
-
-    # Any block-status response is treated as a wall -> browser escalation
-    if status in (403, 429, 503):
+    if any(ind in body for ind in _CHALLENGE_SUBSTRINGS):
         return True
 
-    # 200 status during ongoing interstitial verification
-    if has_challenge_element and any(w in body_lower for w in ("just a moment", "checking your browser", "verify you are human")):
+    # Explicit Cloudflare WAF block markers on error responses
+    if status in (403, 503) and ("cloudflare" in headers_dict.get("server", "") or any(m in body_lower for m in ("error 1020", "you have been blocked", "sorry, you have been blocked"))):
         return True
 
     return False

@@ -17,7 +17,8 @@ async def test_cookie_store() -> None:
     # Basic LRU operations
     store.set("example.com", {"session": "abc123xyz"}, ttl=10)
     assert store.get("example.com") == {"session": "abc123xyz"}, "Failed to retrieve cached cookies"
-    assert store.domain_of("https://sub.example.com/path") == "example.com", "eTLD+1 extraction mismatch"
+    assert store.domain_of("https://sub.example.com/path") == "sub.example.com", "Exact host extraction mismatch"
+    assert store.root_domain_of("sub.example.com") == "example.com", "eTLD+1 extraction mismatch"
 
     # Simulate 69 bloated cookies from movielinkbd.li
     raw_cookies = {

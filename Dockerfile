@@ -52,13 +52,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy application files (cache-bust ensures fresh app build on changes)
-ENV APP_BUILD_EPOCH="20261015_2317"
-COPY . .
+RUN (useradd -m -s /bin/bash ubuntu || true) && \
+    mkdir -p /app /home/ubuntu/.cloakbrowser /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chown -R ubuntu:ubuntu /app /home/ubuntu/.cloakbrowser
 
-RUN chmod +x /app/docker-entrypoint.sh && \
-    (useradd -m -s /bin/bash ubuntu || true) && \
-    chown -R ubuntu:ubuntu /app
+# 1. Install dependencies first (layer-cached across code changes)
+COPY requirements.txt .
 
 USER ubuntu
 
@@ -77,9 +77,12 @@ RUN CHROME_PATH=$(/app/venv/bin/python3 -c "import cloakbrowser; print(cloakbrow
     ln -sf "$CHROME_PATH" /usr/bin/google-chrome && \
     ln -sf "$CHROME_PATH" /usr/bin/google-chrome-stable && \
     chmod 755 "$CHROME_PATH" && \
-    chmod -R 755 /home/ubuntu/.cloakbrowser && \
-    mkdir -p /tmp/.X11-unix && \
-    chmod 1777 /tmp/.X11-unix
+    chmod -R 755 /home/ubuntu/.cloakbrowser
+
+# 2. Copy application files (changes frequently without invalidating dependencies)
+COPY . .
+RUN chmod +x /app/docker-entrypoint.sh && \
+    chown -R ubuntu:ubuntu /app
 
 USER ubuntu
 

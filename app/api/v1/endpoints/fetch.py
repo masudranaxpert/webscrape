@@ -397,6 +397,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             capture_token=req.capture_token or bool(req.token_field_names) or auto_capture,
             token_field_names=req.token_field_names,
             click_selector=req.click_selector,
+            method=req.method,
+            headers=req.headers,
+            body=req.body,
         )
         
         logs.extend(f"[SOLVER] {n}" for n in br.notes)
