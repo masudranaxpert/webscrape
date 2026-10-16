@@ -144,8 +144,9 @@ def test_cookie_cache_never_crosses_identities():
     assert s.get(a_key)["cf_clearance"] == "A"
     assert s.get(b_key)["cf_clearance"] == "B"
     assert s.get(direct_key) is None
-    # Root-domain clearance fallback stays inside the same identity
-    assert s.get(s.cache_key("other.target-site.site", identity=pa)) == {"cf_clearance": "A"}
+    # Subdomain cookies are strictly host-scoped and do not pollute root domain or other subdomains
+    assert s.get(s.cache_key("target-site.site", identity=pa)) is None
+    assert s.get(s.cache_key("other.target-site.site", identity=pa)) is None
     assert s.get(s.cache_key("other.target-site.site")) is None
 
 
@@ -157,10 +158,10 @@ def test_session_keys_with_identity():
     s.set(key, {"cf_clearance": "S"})
     assert s.get(key) == {"cf_clearance": "S"}
     assert s.get(s.cache_key("sub.target-site.example", "flow1")) is None
-    # Rejected clearance purge targets the same identity's root only
+    # Invalidation targets specific entry
     s.set(s.cache_key("x.example.com", identity=pa), {"cf_clearance": "R"})
-    s.invalidate(s.cache_key("x.example.com", "f", pa), rejected_clearance="R")
-    assert s.get(s.cache_key("y.example.com", identity=pa)) is None
+    s.invalidate(s.cache_key("x.example.com", identity=pa), rejected_clearance="R")
+    assert s.get(s.cache_key("x.example.com", identity=pa)) is None
 
 
 # Keyed browser pool

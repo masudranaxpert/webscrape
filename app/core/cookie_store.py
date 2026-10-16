@@ -311,31 +311,6 @@ class CookieStore:
             "expires_at": time.time() + ttl,
         }
 
-        # Atomically update root domain ONLY with cf_clearance (never __cf_bm or session tokens)
-        # and keep identity (UA, proxy, preset, expiry) fully synchronized without wiping existing root cookies
-        if "cf_clearance" in clean_cookies:
-            root = self._root_key(key)
-            if root != key:
-                if root in self._domain_store:
-                    self._domain_store.move_to_end(root)
-                    self._domain_store[root]["cookies"]["cf_clearance"] = clean_cookies["cf_clearance"]
-                    if ua or existing_ua:
-                        self._domain_store[root]["user_agent"] = ua or existing_ua
-                    if proxy is not None:
-                        self._domain_store[root]["proxy"] = proxy
-                    if preset is not None:
-                        self._domain_store[root]["preset"] = preset
-                    self._domain_store[root]["expires_at"] = time.time() + ttl
-                else:
-                    if len(self._domain_store) >= self._max_domains:
-                        self._domain_store.popitem(last=False)
-                    self._domain_store[root] = {
-                        "cookies": {"cf_clearance": clean_cookies["cf_clearance"]},
-                        "user_agent": ua or existing_ua,
-                        "proxy": proxy,
-                        "preset": preset,
-                        "expires_at": time.time() + ttl,
-                    }
 
     def invalidate(
         self,

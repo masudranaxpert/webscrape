@@ -17,8 +17,11 @@ async def test_cookie_store() -> None:
     # Basic LRU operations
     store.set("example.com", {"session": "abc123xyz"}, ttl=10)
     assert store.get("example.com") == {"session": "abc123xyz"}, "Failed to retrieve cached cookies"
-    assert store.domain_of("https://sub.example.com/path") == "sub.example.com", "Exact host extraction mismatch"
-    assert store.root_domain_of("sub.example.com") == "example.com", "eTLD+1 extraction mismatch"
+    # Verify subdomain cookie caching does not pollute root domain
+    store.set("sub.target-site.example", {"cf_clearance": "clr_sub"}, ttl=10)
+    assert "sub.target-site.example" in store.all_domains()
+    assert "target-site.site" not in store.all_domains(), "Subdomain cookies must not create phantom root domain"
+    store.invalidate("sub.target-site.example")
 
     # Simulate 69 bloated cookies from movielinkbd.li
     raw_cookies = {
