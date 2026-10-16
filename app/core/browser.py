@@ -173,6 +173,11 @@ class BrowserJobTimeout(RuntimeError):
     """A browser job exceeded its hard deadline and was cancelled (HTTP 504)."""
 
 
+# Licensed-launch retries when the single seat is still held by a just-closed process
+_SEAT_RETRIES = 2
+_SEAT_RETRY_DELAY_SEC = 2.5
+
+
 async def _bounded(awaitable: Any, timeout: float = BROWSER_CALL_TIMEOUT_SEC) -> Any:
     """Await a Playwright call that has no native timeout (evaluate, content, cookies) with a hard ceiling."""
     return await asyncio.wait_for(awaitable, timeout=timeout)
@@ -263,24 +268,32 @@ class BrowserPool:
 
     async def _launch_browser(self, launch_kwargs: dict[str, Any]) -> tuple[Any, bool]:
         """Launch CloakBrowser; on a license/seat error fall back to the unauthenticated engine. Returns (browser, licensed)."""
-        try:
-            return await cb.launch_async(**launch_kwargs), True
-        except Exception as err:
-            err_msg = str(err).lower()
-            if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
-                logger.warning(
-                    "CloakBrowser license failure (%s); falling back to unauthenticated engine",
-                    redact(str(err)),
-                )
-                fallback_kwargs = dict(launch_kwargs)
-                fallback_kwargs["license_key"] = None
-                saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
-                try:
-                    return await cb.launch_async(**fallback_kwargs), False
-                finally:
-                    if saved_key:
-                        os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
-            raise
+        last_err: Exception | None = None
+        for attempt in range(_SEAT_RETRIES + 1):
+            try:
+                return await cb.launch_async(**launch_kwargs), True
+            except Exception as err:
+                last_err = err
+                # Swapping egress identities closes one process and launches the next immediately; the license
+                # server can still count the closed session for a moment, so give the seat time to free up first
+                if "session limit" in str(err).lower() and attempt < _SEAT_RETRIES:
+                    logger.info("CloakBrowser seat still busy; retrying licensed launch in %.1fs", _SEAT_RETRY_DELAY_SEC)
+                    await asyncio.sleep(_SEAT_RETRY_DELAY_SEC)
+                    continue
+                break
+
+        err_msg = str(last_err).lower()
+        if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
+            logger.warning("CloakBrowser license failure (%s); falling back to unauthenticated engine", redact(str(last_err)))
+            fallback_kwargs = dict(launch_kwargs)
+            fallback_kwargs["license_key"] = None
+            saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
+            try:
+                return await cb.launch_async(**fallback_kwargs), False
+            finally:
+                if saved_key:
+                    os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
+        raise last_err
 
     async def _launch_worker(self, key: str, proxy: str | None) -> _Worker:
         """Launch a browser whose proxy, timezone, locale and WebRTC IP all match one egress identity."""

@@ -174,6 +174,40 @@ def test_stalled_page_call_is_bounded():
     asyncio.run(run())
 
 
+def test_seat_busy_retries_licensed_launch_before_fallback():
+    async def run():
+        calls = []
+
+        async def fake_launch_async(**kwargs):
+            calls.append(kwargs.get("license_key", "licensed"))
+            if len(calls) == 1:
+                raise RuntimeError("CloakBrowser Pro: session limit reached for your plan.")
+            return "browser"
+
+        orig_launch, orig_delay = browser_mod.cb.launch_async, browser_mod._SEAT_RETRY_DELAY_SEC
+        browser_mod.cb.launch_async, browser_mod._SEAT_RETRY_DELAY_SEC = fake_launch_async, 0.01
+        try:
+            pool, _ = _pool()
+            assert await pool._launch_browser({}) == ("browser", True), "seat freed on retry: must stay licensed"
+            assert calls == ["licensed", "licensed"]
+
+            calls.clear()
+
+            async def always_busy(**kwargs):
+                calls.append(kwargs.get("license_key", "licensed"))
+                if kwargs.get("license_key", "licensed") is None:
+                    return "free-browser"
+                raise RuntimeError("session limit reached")
+
+            browser_mod.cb.launch_async = always_busy
+            assert await pool._launch_browser({}) == ("free-browser", False)
+            assert calls == ["licensed"] * (browser_mod._SEAT_RETRIES + 1) + [None]
+        finally:
+            browser_mod.cb.launch_async, browser_mod._SEAT_RETRY_DELAY_SEC = orig_launch, orig_delay
+
+    asyncio.run(run())
+
+
 def proxy_id(proxy: str) -> str:
     from app.core.proxy import proxy_key
 
@@ -189,6 +223,7 @@ def run_all():
         test_queue_wait_is_bounded_when_pool_is_saturated()
         test_tab_cap_spans_all_browsers()
         test_stalled_page_call_is_bounded()
+        test_seat_busy_retries_licensed_launch_before_fallback()
     finally:
         browser_mod.BROWSER_JOB_OVERHEAD_SEC, browser_mod.BROWSER_QUEUE_TIMEOUT_SEC = original
     print("[OK] Browser pool liveness checks passed.")
