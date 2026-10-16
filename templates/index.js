@@ -7,10 +7,7 @@ let currentResponseData = null;
 let cachedDomainsData = {};
 let ttlIntervalTimer = null;
 
-// ==========================================================================
-// Syntax Highlighters
-// ==========================================================================
-
+// Syntax highlighters
 function syntaxHighlight(json) {
   if (typeof json !== 'string') {
     json = JSON.stringify(json, undefined, 2);
@@ -46,10 +43,7 @@ function highlightHtml(html) {
   return escaped;
 }
 
-// ==========================================================================
-// Authentication Vault Manager
-// ==========================================================================
-
+// Authentication vault manager
 const globalApiKeyInput = document.getElementById('globalApiKeyInput');
 const btnSaveApiKey = document.getElementById('btnSaveApiKey');
 const btnClearApiKey = document.getElementById('btnClearApiKey');
@@ -163,11 +157,7 @@ if (headerKeyBadge) {
   });
 }
 
-// ==========================================================================
-// Navigation & Tab Switchers
-// ==========================================================================
-
-// Config Drawer Toggle (Default Hidden)
+// Navigation & tab switchers
 const btnToggleConfig = document.getElementById('btnToggleConfig');
 const studioConfigCard = document.getElementById('studioConfigCard');
 const btnCloseConfig = document.getElementById('btnCloseConfig');
@@ -321,10 +311,7 @@ if (btnClearUrl && targetUrl) {
   });
 }
 
-// ==========================================================================
-// Key-Value Rows Editor (Headers & Cookies)
-// ==========================================================================
-
+// Key-value rows editor
 function createKvRow(key = '', val = '') {
   const row = document.createElement('div');
   row.className = 'kv-row';
@@ -399,9 +386,7 @@ if (btnTestUserProxy && cfgProxy) {
   });
 }
 
-// ==========================================================================
-// Preset Configurations
-// ==========================================================================
+// Preset configurations
 
 document.querySelectorAll('.btn-preset').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -436,9 +421,7 @@ document.querySelectorAll('.btn-preset').forEach(btn => {
   });
 });
 
-// ==========================================================================
-// HTML Preview (Code vs Sandboxed Iframe)
-// ==========================================================================
+// HTML preview: code vs sandboxed iframe
 
 const btnPreviewCode = document.getElementById('btnPreviewCode');
 const btnPreviewFrame = document.getElementById('btnPreviewFrame');
@@ -518,9 +501,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ==========================================================================
-// Studio Request Runner
-// ==========================================================================
+// Studio request runner
 
 const fetchForm = document.getElementById('fetchForm');
 const submitBtn = document.getElementById('submitBtn');
@@ -847,9 +828,7 @@ fetchForm.addEventListener('submit', async (e) => {
   }
 });
 
-// ==========================================================================
-// Domain Cache Explorer Logic
-// ==========================================================================
+// Domain cache explorer
 
 const cacheGrid = document.getElementById('cacheGrid');
 const cacheSearchInput = document.getElementById('cacheSearchInput');
@@ -1097,9 +1076,7 @@ if (btnRefreshCache) {
   });
 }
 
-// ==========================================================================
-// Health & Live Connection Check
-// ==========================================================================
+// Health and connection check
 
 async function checkHealth() {
   const statusText = document.getElementById('statusText');

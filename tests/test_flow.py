@@ -3,14 +3,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
 import time
+import urllib.request
 from urllib.parse import urljoin
 
-import httpx
-from bs4 import BeautifulSoup
+from selectolax.lexbor import LexborHTMLParser
 
 
 def load_env(path: str = ".env") -> dict[str, str]:
@@ -40,34 +41,39 @@ def extract_media_link(
     if api_key:
         headers["X-API-Key"] = api_key
 
-    client = httpx.Client(timeout=120.0)
+    def _post_json(url: str, payload: dict) -> dict:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120.0) as resp:
+            return json.loads(resp.read().decode("utf-8"))
 
-    # Step 1: Fetch primary page and await dynamic client-rendered elements
+    # Initial page retrieval awaiting client-rendered elements
     s1_start = time.perf_counter()
-    r1 = client.post(
+    d1 = _post_json(
         fetch_endpoint,
-        json={
+        {
             "url": target_url,
             "method": "GET",
             "force_browser": True,
             "cf_wait": 35.0,
             "wait_for_selector": ".btn-instant",
         },
-        headers=headers,
     )
-    r1.raise_for_status()
-    d1 = r1.json()
     s1_time = time.perf_counter() - s1_start
 
-    # Locate the active target link (filtering honeypots and nofollow anchors)
-    soup1 = BeautifulSoup(d1.get("body", ""), "html.parser")
+    # Locate active target link while ignoring honeypots and nofollow anchors
+    tree1 = LexborHTMLParser(d1.get("body", ""))
     sub_link: str | None = None
-    for a in soup1.find_all("a"):
-        text = a.get_text().strip().lower()
-        cls = " ".join(a.get("class", []))
+    for a in tree1.css("a"):
+        text = a.text(strip=True).lower()
+        cls = a.attributes.get("class") or ""
         if "instant" in text or "btn-instant" in cls:
-            if a.get("tabindex") != "-1" and "nofollow" not in (a.get("rel") or []):
-                sub_link = a.get("href")
+            if a.attributes.get("tabindex") != "-1" and "nofollow" not in (a.attributes.get("rel") or ""):
+                sub_link = a.attributes.get("href")
                 break
 
     if not sub_link:
@@ -75,11 +81,11 @@ def extract_media_link(
 
     next_url = urljoin(target_url, sub_link)
 
-    # Step 2: Solve embedded verification and trigger in-page submission
+    # Verification solve and automated button submission
     s2_start = time.perf_counter()
-    r2 = client.post(
+    d2 = _post_json(
         fetch_endpoint,
-        json={
+        {
             "url": next_url,
             "method": "GET",
             "force_browser": True,
@@ -87,13 +93,10 @@ def extract_media_link(
             "click_selector": "#go-btn",
             "inject_cookies": d1.get("cookies", {}),
         },
-        headers=headers,
     )
-    r2.raise_for_status()
-    d2 = r2.json()
     s2_time = time.perf_counter() - s2_start
 
-    # Discover final destination media URLs from response body or location
+    # Resolve destination media URLs from response payload
     body2 = d2.get("body", "")
     final_url = d2.get("url", "")
     media_links = re.findall(r"https://[^\s\"'<>]*(?:googleusercontent|storage|cdn)[^\s\"'<>]+", body2)

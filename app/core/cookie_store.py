@@ -66,21 +66,12 @@ MAX_COOKIE_HEADER_BYTES = 3500
 
 
 def _matches_any_pattern(name: str, patterns: list[str]) -> bool:
-    """Check if cookie name matches any pattern via exact name, glob wildcard, or regex."""
+    """Check if cookie name matches any pattern via exact name or glob wildcard."""
     name_lower = name.lower()
     for pat in patterns:
         pat_lower = pat.lower()
-        if name_lower == pat_lower:
+        if name_lower == pat_lower or fnmatch.fnmatchcase(name_lower, pat_lower):
             return True
-        if any(c in pat for c in ("*", "?", "[")):
-            if fnmatch.fnmatchcase(name_lower, pat_lower):
-                return True
-        else:
-            try:
-                if re.search(f"^{pat}$", name, re.IGNORECASE):
-                    return True
-            except Exception:
-                pass
     return False
 
 
@@ -171,7 +162,7 @@ class CookieStore:
         patterns = allowlist if allowlist is not None else DEFAULT_COOKIE_ALLOWLIST
         injected_names = set(inject_cookies or {})
 
-        # 1. Apply allowlist matching
+        # Filter against allowlist patterns
         allowed: dict[str, str] = {}
         for name, value in cookies.items():
             if name in injected_names or _matches_any_pattern(name, patterns):
@@ -179,21 +170,20 @@ class CookieStore:
 
         was_truncated = False
 
-        # 2. Enforce count limit (retaining priority CF/session tokens first, then recent items)
+        # Retain priority clearance and session tokens first when capping count
         if len(allowed) > max_cookies:
             was_truncated = True
             priority = {
                 k: v for k, v in allowed.items()
                 if k in injected_names or k.lower().startswith(("cf_", "__cf"))
             }
-            # Fill remaining slots with newest general cookies
             for k, v in reversed(list(allowed.items())):
                 if len(priority) >= max_cookies:
                     break
                 priority[k] = v
             allowed = priority
 
-        # 3. Enforce header byte-size limit
+        # Evict non-essential cookies first to fit byte ceiling
         while allowed and sum(len(k) + len(v) + 2 for k, v in allowed.items()) > max_bytes:
             was_truncated = True
             # Evict non-essential first

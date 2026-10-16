@@ -6,7 +6,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pytest
 from pydantic import ValidationError
 
 import app.core.proxy as proxy_mod
@@ -26,8 +25,7 @@ from app.schemas.scraping import FetchRequest
 SOCKS = "socks5://user:p@ss=w0rd@1.2.3.4:1080"
 
 
-# ── Validation ────────────────────────────────────────────────────────────────
-
+# Validation
 def test_normalize_accepts_supported_schemes():
     assert normalize_proxy("http://1.2.3.4:8080") == "http://1.2.3.4:8080"
     assert normalize_proxy(" HTTPS://proxy.example:443 ") == "https://proxy.example:443"
@@ -44,30 +42,36 @@ def test_normalize_reencodes_special_char_credentials():
     assert normalize_proxy("socks5://user:p%40ss%3Dw0rd@1.2.3.4:1080") == "socks5://user:p%40ss%3Dw0rd@1.2.3.4:1080"
 
 
-@pytest.mark.parametrize("bad", [
-    "ftp://1.2.3.4:21",
-    "1.2.3.4:8080",
-    "http://1.2.3.4",
-    "http://1.2.3.4:99999",
-    "http://1.2.3.4:8080/path",
-    "http://user@1.2.3.4:8080",
-    "masque://1.2.3.4:443",
-])
-def test_normalize_rejects_unusable_proxies(bad):
-    with pytest.raises(ValueError):
-        normalize_proxy(bad)
+def test_normalize_rejects_unusable_proxies():
+    bad_proxies = [
+        "ftp://1.2.3.4:21",
+        "1.2.3.4:8080",
+        "http://1.2.3.4",
+        "http://1.2.3.4:99999",
+        "http://1.2.3.4:8080/path",
+        "http://user@1.2.3.4:8080",
+        "masque://1.2.3.4:443",
+    ]
+    for bad in bad_proxies:
+        try:
+            normalize_proxy(bad)
+            assert False, f"Expected ValueError for {bad}"
+        except ValueError:
+            pass
 
 
 def test_schema_rejects_invalid_proxy_with_422_semantics():
-    with pytest.raises(ValidationError):
+    try:
         FetchRequest(url="https://example.com", proxy="1.2.3.4:8080")
+        assert False, "Expected ValidationError"
+    except ValidationError:
+        pass
     assert FetchRequest(url="https://example.com", proxy="DIRECT").proxy == "direct"
-    assert FetchRequest(url="https://example.com", proxy="none").proxy is None  # Swagger placeholder -> unset
+    assert FetchRequest(url="https://example.com", proxy="none").proxy is None
     assert FetchRequest(url="https://example.com", proxy=SOCKS).proxy == normalize_proxy(SOCKS)
 
 
-# ── Secrets never reach logs ──────────────────────────────────────────────────
-
+# Credential masking and logs safety
 def test_mask_hides_credentials():
     assert mask_proxy(normalize_proxy(SOCKS)) == "socks5://***@1.2.3.4:1080"
     assert mask_proxy("http://1.2.3.4:8080") == "http://1.2.3.4:8080"
@@ -102,26 +106,30 @@ def test_proxy_error_detection():
     assert not is_proxy_error(None)
 
 
-# ── Default routing ───────────────────────────────────────────────────────────
+# Default proxy routing
+def test_resolve_proxy_routing():
+    orig_default = proxy_mod._DEFAULT_PROXY
+    orig_domains = proxy_mod._DEFAULT_PROXY_DOMAINS
+    try:
+        default = "http://u:p@res.example:8000"
+        proxy_mod._DEFAULT_PROXY = default
+        proxy_mod._DEFAULT_PROXY_DOMAINS = ("target-site.site",)
 
-def test_resolve_proxy_routing(monkeypatch):
-    default = "http://u:p@res.example:8000"
-    monkeypatch.setattr(proxy_mod, "_DEFAULT_PROXY", default)
-    monkeypatch.setattr(proxy_mod, "_DEFAULT_PROXY_DOMAINS", ("target-site.site",))
+        assert resolve_proxy(None, "sub.target-site.example") == default
+        assert resolve_proxy(None, "target-site.site") == default
+        assert resolve_proxy(None, "nottarget-site.site") is None
+        assert resolve_proxy(None, "example.com") is None
+        assert resolve_proxy("direct", "sub.target-site.example") is None
+        assert resolve_proxy("http://other.example:1", "sub.target-site.example") == "http://other.example:1"
 
-    assert resolve_proxy(None, "sub.target-site.example") == default
-    assert resolve_proxy(None, "target-site.site") == default
-    assert resolve_proxy(None, "nottarget-site.site") is None
-    assert resolve_proxy(None, "example.com") is None
-    assert resolve_proxy("direct", "sub.target-site.example") is None
-    assert resolve_proxy("http://other.example:1", "sub.target-site.example") == "http://other.example:1"
-
-    monkeypatch.setattr(proxy_mod, "_DEFAULT_PROXY_DOMAINS", ())
-    assert resolve_proxy(None, "example.com") == default
+        proxy_mod._DEFAULT_PROXY_DOMAINS = ()
+        assert resolve_proxy(None, "example.com") == default
+    finally:
+        proxy_mod._DEFAULT_PROXY = orig_default
+        proxy_mod._DEFAULT_PROXY_DOMAINS = orig_domains
 
 
-# ── Cookie namespaces per egress identity ─────────────────────────────────────
-
+# Cookie namespaces per egress identity
 def test_cookie_cache_never_crosses_identities():
     s = CookieStore()
     pa, pb = proxy_key("http://a.example:1"), proxy_key("http://b.example:1")
@@ -155,8 +163,7 @@ def test_session_keys_with_identity():
     assert s.get(s.cache_key("y.example.com", identity=pa)) is None
 
 
-# ── Keyed browser pool ────────────────────────────────────────────────────────
-
+# Keyed browser pool
 class _FakeBrowser:
     def __init__(self):
         self.closed = False
@@ -243,5 +250,25 @@ def test_pool_replaces_disconnected_worker():
     asyncio.run(run())
 
 
+def run_all():
+    test_normalize_accepts_supported_schemes()
+    test_normalize_reencodes_special_char_credentials()
+    test_normalize_rejects_unusable_proxies()
+    test_schema_rejects_invalid_proxy_with_422_semantics()
+    test_mask_hides_credentials()
+    test_redact_strips_credentials_from_error_text()
+    test_proxy_key_is_stable_and_non_reversible()
+    test_browser_proxy_maps_socks5h()
+    test_proxy_error_detection()
+    test_resolve_proxy_routing()
+    test_cookie_cache_never_crosses_identities()
+    test_session_keys_with_identity()
+    test_pool_reuses_worker_per_identity()
+    test_pool_evicts_idle_lru_when_full()
+    test_pool_waits_for_busy_identity_and_does_not_starve()
+    test_pool_replaces_disconnected_worker()
+    print("[OK] All proxy & browser pool self-checks passed successfully.")
+
+
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
+    run_all()
