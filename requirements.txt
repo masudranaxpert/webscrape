@@ -1,6 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
-httpcloak==1.7.2
+httpcloak==1.7.3
 selectolax>=0.3.21
 python-dotenv>=1.0.1
 cloakbrowser==0.6.3
