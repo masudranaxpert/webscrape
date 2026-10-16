@@ -26,6 +26,10 @@ VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() 
 BROWSER_MAX_LIFETIME_SEC: int = int(os.getenv("BROWSER_MAX_LIFETIME_SEC", "300"))
 # One Chromium process per egress identity (direct / each proxy); bounded by CloakBrowser license seats
 MAX_BROWSERS: int = max(1, int(os.getenv("MAX_BROWSERS", "1")))
+# Largest response body (MB) the HTTP engine reads into memory. A body is held several times over while it is decoded
+# and serialized (measured ~12x), so one multi-GB video behind a redirect used to exhaust RAM+swap. Larger or binary
+# responses are not read: status, headers and the final (redirect target) URL are returned instead.
+MAX_RESPONSE_MB: float = float(os.getenv("MAX_RESPONSE_MB", "16"))
 # Hard ceiling for one browser job, queue wait included: cf_wait + this overhead. A hung Playwright call can never hold
 # a tab (and with MAX_BROWSERS=1 the whole pool) longer than this. Keep the total below the client's HTTP timeout.
 BROWSER_JOB_OVERHEAD_SEC: float = float(os.getenv("BROWSER_JOB_OVERHEAD_SEC", "90"))

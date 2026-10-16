@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpcloak
 
-from app.core.config import DEBUG
+from app.core.config import DEBUG, MAX_RESPONSE_MB
 from app.core.proxy import mask_proxy, normalize_proxy, redact
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,9 @@ class FetcherResult:
     cf_wall: bool = False
     elapsed_ms: int = 0
     error: str | None = None
+    # True when the body was not (fully) read: binary/oversized response. status, headers and final_url stay valid
+    truncated: bool = False
+    note: str | None = None
 
 
 def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -> bool:
@@ -80,15 +83,161 @@ def has_turnstile_widget(body: str) -> bool:
 # Extra seconds past the native timeout before giving up on the request from Python's side
 _NATIVE_GRACE_SEC = 10.0
 
+# Bodies in these families are never read: the caller wants the status, headers and final URL, not the bytes
+_BINARY_TYPE_PREFIXES = ("video/", "audio/", "image/", "font/")
+_BINARY_TYPES = frozenset({
+    "application/octet-stream", "application/zip", "application/x-zip-compressed", "application/gzip",
+    "application/x-gzip", "application/x-7z-compressed", "application/vnd.rar", "application/x-rar-compressed",
+    "application/x-tar", "application/x-matroska", "application/vnd.apple.mpegurl", "application/x-msdownload",
+    "application/pdf", "binary/octet-stream",
+})
+_READ_CHUNK = 256 * 1024
 
-def _close_when_done(task: "asyncio.Future", session: "httpcloak.Session") -> None:
-    """Close a session only after its native request finished; consume the outcome so nothing is left unretrieved."""
-    if not task.cancelled():
-        task.exception()
+
+class _NativeTracker:
+    """Closes an httpcloak session (and its streams) only after every native call using it has finished."""
+
+    def __init__(self, session: "httpcloak.Session") -> None:
+        self._session = session
+        self._streams: list = []
+        self._pending = 0
+        self._released = False
+
+    def watch(self, fut: "asyncio.Future") -> None:
+        self._pending += 1
+        fut.add_done_callback(self._done)
+
+    def add_stream(self, stream) -> None:
+        self._streams.append(stream)
+
+    def _done(self, fut: "asyncio.Future") -> None:
+        if not fut.cancelled():
+            fut.exception()  # consume it so a late failure is not reported as "never retrieved"
+        self._pending -= 1
+        self._maybe_close()
+
+    def release(self) -> None:
+        self._released = True
+        self._maybe_close()
+
+    def _maybe_close(self) -> None:
+        if not self._released or self._pending > 0:
+            return
+        for stream in self._streams:
+            try:
+                stream.close()
+            except Exception:
+                pass
+        self._streams.clear()
+        try:
+            self._session.close()
+        except Exception:
+            pass
+
+
+def _flatten_headers(raw) -> dict[str, str]:
+    return {k: ", ".join(v) if isinstance(v, list) else str(v) for k, v in (raw or {}).items()}
+
+
+def _header(headers: dict[str, str], name: str) -> str:
+    return next((v for k, v in headers.items() if k.lower() == name), "")
+
+
+def _skip_reason(method: str, headers: dict[str, str], content_length: int | None, max_bytes: int) -> str | None:
+    """Why this body must not be read into memory (None = read it, up to max_bytes)."""
+    ctype = _header(headers, "content-type").split(";")[0].strip().lower()
+    if method == "HEAD":
+        return None
+    if ctype.startswith(_BINARY_TYPE_PREFIXES) or ctype in _BINARY_TYPES:
+        return f"binary response ({ctype}) not read"
+    if "attachment" in _header(headers, "content-disposition").lower():
+        return "file download (Content-Disposition: attachment) not read"
+    if content_length is not None and content_length > max_bytes:
+        return f"body of {content_length / 1048576:.0f} MB exceeds the {max_bytes / 1048576:.0f} MB limit, not read"
+    return None
+
+
+def _read_capped(stream, max_bytes: int) -> tuple[bytes, bool]:
+    """Read at most max_bytes from a stream (runs in a worker thread). Returns (data, hit_the_cap)."""
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in stream.iter_content(chunk_size=_READ_CHUNK):
+        room = max_bytes - total
+        if len(chunk) > room:
+            chunks.append(chunk[:room])
+            return b"".join(chunks), True
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks), False
+
+
+def _decode_body(data: bytes, headers: dict[str, str]) -> str:
+    if not data:
+        return ""
+    charset = re.search(r"charset=([\w.-]+)", _header(headers, "content-type"), re.IGNORECASE)
     try:
-        session.close()
-    except Exception:
-        pass
+        return data.decode(charset.group(1) if charset else "utf-8", errors="replace")
+    except LookupError:
+        return data.decode("utf-8", errors="replace")
+
+
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+_MAX_REDIRECTS = 10
+
+
+async def _request(tracker: "_NativeTracker", session, *, method: str, url: str, headers: dict, payload,
+                   cookies: dict, timeout: int, max_bytes: int):
+    """Send the request as a stream, look at the headers, and read the body only if it is small, non-binary text.
+
+    httpcloak's stream API does not follow redirects, so they are followed here, hop by hop, without reading any
+    redirect body (browser rules: 301/302/303 turn a POST into a GET, 307/308 keep the method).
+    Returns (response, body_bytes, note). `note` is set when the body was skipped or cut at the cap.
+    Every native call is shielded and tracked, so a timeout never frees memory under a running goroutine.
+    """
+    start = time.monotonic()
+    deadline = start + timeout + _NATIVE_GRACE_SEC
+    origin_host = urlparse(url).hostname
+    current_url, current_method, current_payload = url, method, payload
+
+    stream = None
+    for hop in range(_MAX_REDIRECTS + 1):
+        remaining = max(1, int(timeout - (time.monotonic() - start)))
+        # Per-request cookies belong to the origin host; a redirect to another site must not receive them
+        # (cookies already stored in the session jar are scoped by domain and travel correctly)
+        same_host = urlparse(current_url).hostname == origin_host
+        native = asyncio.ensure_future(
+            session.request_stream_async(
+                method=current_method, url=current_url, headers=headers, data=current_payload,
+                cookies=cookies if same_host else {}, allow_redirects=False, timeout=remaining,
+            )
+        )
+        tracker.watch(native)
+        stream = await asyncio.wait_for(asyncio.shield(native), timeout=max(1.0, deadline - time.monotonic()))
+        tracker.add_stream(stream)
+
+        flat = _flatten_headers(stream.headers)
+        location = _header(flat, "location")
+        if stream.status_code in _REDIRECT_STATUSES and location and hop < _MAX_REDIRECTS:
+            current_url = urljoin(current_url, location)
+            if stream.status_code == 303 or (stream.status_code in (301, 302) and current_method not in ("GET", "HEAD")):
+                current_method, current_payload = "GET", None
+            continue  # the redirect body is never read; the stream is closed when the tracker is released
+        break
+
+    declared = getattr(stream, "content_length", None)
+    declared = declared if isinstance(declared, int) and declared >= 0 else None
+    reason = _skip_reason(current_method, flat, declared, max_bytes)
+    if reason:
+        logger.info("httpcloak: %s -> %s; body not read (status %s)", current_url, reason, stream.status_code)
+        return stream, b"", reason
+
+    reader = asyncio.ensure_future(asyncio.to_thread(_read_capped, stream, max_bytes))
+    tracker.watch(reader)
+    data, capped = await asyncio.wait_for(asyncio.shield(reader), timeout=max(1.0, deadline - time.monotonic()))
+    note = f"body cut at {max_bytes / 1048576:.0f} MB limit" if capped else None
+    if capped:
+        logger.warning("httpcloak: %s -> %s", current_url, note)
+    return stream, data, note
 
 
 def _sanitize_http_version(http_version: str | None) -> str | None:
@@ -133,9 +282,10 @@ async def httpcloak_fetch(
         session_kwargs["http_version"] = clean_version
 
     session = httpcloak.Session(**session_kwargs)
-    # Set when the native request may still be running: closing the session then frees memory its goroutine is
-    # still using (use-after-free -> segfault that killed the whole API without a traceback)
-    close_deferred = False
+    # Closing the session while a native request (or body read) is still running frees memory its goroutine is still
+    # using (use-after-free -> segfault that killed the whole API without a traceback): the tracker closes it only
+    # once every native call has finished, even after a timeout or cancellation
+    tracker = _NativeTracker(session)
 
     try:
         # Pre-seed session cookie jar
@@ -161,22 +311,12 @@ async def httpcloak_fetch(
 
         # The native side owns the deadline (timeout=); the outer guard only catches a native hang and is shielded,
         # because cancelling the native future makes its completion callback hit a dead future (InvalidStateError)
-        native = asyncio.ensure_future(
-            session.request_async(
-                method=method.upper(),
-                url=url,
-                headers=req_headers,
-                data=payload,
-                cookies=cookies or {},
-                allow_redirects=True,
-                timeout=int(timeout),
-            )
-        )
         try:
-            resp = await asyncio.wait_for(asyncio.shield(native), timeout=float(timeout) + _NATIVE_GRACE_SEC)
+            resp, data, note = await _request(
+                tracker, session, method=method.upper(), url=url, headers=req_headers, payload=payload,
+                cookies=cookies or {}, timeout=int(timeout), max_bytes=int(MAX_RESPONSE_MB * 1024 * 1024),
+            )
         except asyncio.TimeoutError:
-            close_deferred = True
-            native.add_done_callback(lambda t, s=session: _close_when_done(t, s))
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.warning("httpcloak request timed out after %ds [%dms]: %s", timeout, elapsed_ms, url)
             return FetcherResult(
@@ -191,9 +331,8 @@ async def httpcloak_fetch(
                 error=f"HTTP request timed out after {timeout}s",
             )
         except asyncio.CancelledError:
-            # The caller was cancelled (e.g. a browser job deadline): leave the native request to finish on its own
-            close_deferred = True
-            native.add_done_callback(lambda t, s=session: _close_when_done(t, s))
+            # The caller was cancelled (e.g. a browser job deadline): the tracker closes the session once the
+            # native request has finished on its own
             raise
         except Exception as err:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -220,19 +359,10 @@ async def httpcloak_fetch(
         except Exception:
             pass
 
-        # Parse text/binary content
-        body_text: str = getattr(resp, "text", None) or ""
-        if not body_text:
-            raw = getattr(resp, "content", None)
-            if isinstance(raw, (bytes, bytearray)):
-                body_text = raw.decode("utf-8", errors="replace")
-
         status: int = resp.status_code
-        raw_hdrs = resp.headers or {}
-        flat_headers = {
-            k: ", ".join(v) if isinstance(v, list) else str(v)
-            for k, v in raw_hdrs.items()
-        }
+        flat_headers = _flatten_headers(resp.headers)
+        body_text = _decode_body(data, flat_headers)
+        del data
 
         wall = _is_cf_wall(status, body_text, flat_headers)
 
@@ -300,7 +430,8 @@ async def httpcloak_fetch(
             protocol=getattr(resp, "protocol", None),
             cf_wall=wall,
             elapsed_ms=elapsed_ms,
+            truncated=note is not None,
+            note=note,
         )
     finally:
-        if not close_deferred:
-            session.close()
+        tracker.release()

@@ -195,6 +195,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             timeout=req.timeout,
         )
 
+        if result.note:
+            logs.append(f"[HTTP-LARGE] {result.note}: returning status, headers and final URL only")
+
         if req.force_http:
             # HTTP only: hand back whatever the origin answered, never escalate to the browser
             if result.error:

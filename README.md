@@ -106,6 +106,7 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | `BROWSER_LICENSED_IDENTITY` | `any` | Which identity gets the CloakBrowser license seat: `any`, `proxy` or `direct`. With a one-seat plan set `proxy` and `MAX_BROWSERS=2`: proxied traffic runs on the licensed build, direct traffic on the keyless v146 build, and the two never evict each other |
 | `BROWSER_LICENSED_LIFETIME_SEC` | `3600` | Idle lifetime of the seat-holding browser (kept warm; unlicensed ones use `BROWSER_MAX_LIFETIME_SEC`) |
 | `BROWSER_EXIT_IP_CHECK_SEC` | `60` | How often a proxied browser re-checks its exit IP in the background. Same IP: it keeps serving. New IP: it finishes its open tabs, closes, drops the old IP's clearance cookies, and the next request launches a fresh browser |
+| `MAX_RESPONSE_MB` | `16` | Largest body the HTTP engine reads into RAM. Videos, images, archives, attachments and bigger bodies are not read; the response returns status, headers and the final redirect URL instead (a 200 MB video used to need ~2.4 GB of RAM) |
 | `BROWSER_GEOIP` | `true` | Match timezone, locale and WebRTC IP to the egress IP (GeoLite2 DB is baked into the image) |
 | `DEFAULT_PROXY` | | Proxy for requests that send no `proxy` |
 | `DEFAULT_PROXY_DOMAINS` | | Comma-separated domains (subdomains included) routed through `DEFAULT_PROXY`; empty = all |
