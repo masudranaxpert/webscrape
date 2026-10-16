@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import HTMLResponse
 
 from app.api.v1.endpoints.fetch import fetch
-from app.core.auth import quota_manager
+from app.core.auth import verify_api_key
 from app.core.config import DOCS_HTML_PATH
 from app.schemas.scraping import FetchRequest, FetchResponse
 
@@ -14,8 +14,10 @@ web_router = APIRouter(include_in_schema=False)
 
 
 @web_router.get("/", response_class=HTMLResponse)
+@web_router.get("/cache", response_class=HTMLResponse)
+@web_router.get("/playground", response_class=HTMLResponse)
 async def home_docs() -> HTMLResponse:
-    """Serve interactive web documentation and playground."""
+    """Serve interactive web documentation, playground, and cache explorer."""
     if DOCS_HTML_PATH.exists():
         return HTMLResponse(content=DOCS_HTML_PATH.read_text(encoding="utf-8"))
     return HTMLResponse(
@@ -25,9 +27,8 @@ async def home_docs() -> HTMLResponse:
 
 
 @web_router.post("/playground/fetch", response_model=FetchResponse)
-async def playground_fetch(req: FetchRequest) -> FetchResponse:
-    """Execute live playground request with strict 10 req/day in-memory server limit."""
-    quota_manager.check_and_consume()
+async def playground_fetch(req: FetchRequest, _: str = Depends(verify_api_key)) -> FetchResponse:
+    """Execute authenticated playground request."""
     return await fetch(req)
 
 

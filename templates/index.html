@@ -33,10 +33,14 @@
 
       <div class="nav-links">
         <a href="#playground" class="nav-link">Playground</a>
+        <a href="#cache" class="nav-link">Cache Explorer</a>
         <a href="#endpoints" class="nav-link">Endpoints</a>
-        <a href="#guides" class="nav-link">Feature Guides</a>
-        <a href="#examples" class="nav-link">Examples</a>
+        <a href="#guides" class="nav-link">Guides</a>
         <a href="/docs" target="_blank" class="nav-link" style="color:var(--accent-cyan);font-weight:600;">Swagger Docs ↗</a>
+        <div class="status-badge" id="headerKeyBadge" style="background:rgba(234,88,12,0.1);border-color:rgba(234,88,12,0.25);color:var(--accent-orange);cursor:pointer;" title="Click to view or edit API Key">
+          <span class="status-dot" id="headerKeyDot" style="background:var(--accent-orange);box-shadow:0 0 8px var(--accent-orange);"></span>
+          <span id="headerKeyText">API Key Required</span>
+        </div>
         <div class="status-badge" id="liveStatusBadge">
           <span class="status-dot"></span>
           <span id="statusText">Connecting...</span>
@@ -106,128 +110,383 @@
       </div>
     </div>
 
-    <!-- Playground / Interactive Tester -->
-    <section class="section-box" id="playground">
-      <div class="section-header">
-        <h2 class="section-title">
-          <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24">
-            <polygon points="6 2 18 2 18 6 6 6 6 2" />
-            <rect x="3" y="6" width="18" height="16" rx="2" />
-            <line x1="10" y1="12" x2="14" y2="12" />
-          </svg>
-          Live Interactive Playground
-        </h2>
-        <div style="display:flex;align-items:center;gap:12px;">
-          <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#202024;border:1px solid #2e2e34;border-radius:20px;font-size:0.82rem;">
-            <span style="color:#fb923c;font-weight:600;">Daily Quota:</span>
-            <span id="dailyQuota" style="font-weight:700;color:#4ade80;">10/10</span>
-          </div>
-          <span style="font-size: 0.85rem; color: var(--text-muted);">Max 10 req/day</span>
-        </div>
-      </div>
-
-      <form id="fetchForm" class="interactive-form" style="display:flex;flex-direction:column;gap:12px;">
-        <div style="display:flex;gap:12px;width:100%;flex-wrap:wrap;">
-          <div class="input-wrapper" style="flex:2;min-width:280px;">
-            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page"
-              value="https://httpbin.org/get" required />
-          </div>
-          <div class="input-wrapper" style="flex:1;min-width:180px;">
-            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+    <!-- Authentication Vault Banner -->
+    <div class="api-vault-card" id="apiVaultCard">
+      <div class="api-vault-inner">
+        <div class="vault-info">
+          <div class="vault-icon-badge">
+            <svg class="svg-icon" viewBox="0 0 24 24">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <input type="password" id="apiKeyInput" class="input-url" placeholder="X-API-Key (optional/saved)" />
           </div>
-          <button type="submit" id="submitBtn" class="btn-send" style="min-width:140px;">
-            <svg class="svg-icon" id="btnIcon" viewBox="0 0 24 24">
+          <div>
+            <div class="vault-title-wrap">
+              <span class="vault-title">Authentication Vault</span>
+              <span class="vault-status-pill" id="vaultStatusPill">Key Required</span>
+            </div>
+            <p class="vault-subtitle">Requests in this studio and the Cache Explorer require a valid <code>X-API-Key</code>. Saved securely in your browser's LocalStorage.</p>
+          </div>
+        </div>
+        <div class="vault-action-group">
+          <div class="vault-input-wrap">
+            <input type="password" id="globalApiKeyInput" class="vault-input" placeholder="Enter X-API-Key (e.g. anti_secret_...)" autocomplete="off" />
+            <button type="button" class="btn-vault-toggle" id="btnToggleKeyVisibility" title="Toggle Visibility">
+              <svg class="svg-icon" id="eyeIcon" viewBox="0 0 24 24">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
+          <button type="button" class="btn-vault-save" id="btnSaveApiKey">
+            <span>Save Key</span>
+          </button>
+          <button type="button" class="btn-vault-clear" id="btnClearApiKey" title="Clear saved key">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Full-Featured Stealth Request Studio -->
+    <section class="section-box" id="playground">
+      <div class="section-header">
+        <div class="section-title-wrap">
+          <h2 class="section-title">
+            <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24">
+              <polygon points="6 2 18 2 18 6 6 6 6 2" />
+              <rect x="3" y="6" width="18" height="16" rx="2" />
+              <line x1="10" y1="12" x2="14" y2="12" />
+            </svg>
+            Stealth Request Studio
+          </h2>
+          <p class="section-subtitle">Dual-engine browser synthesizer with TLS wire fingerprinting, Turnstile automation, and C-speed DOM extraction.</p>
+        </div>
+        <div class="studio-presets">
+          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:600;">Presets:</span>
+          <button type="button" class="btn-preset" data-preset="httpbin">HTTPBin GET</button>
+          <button type="button" class="btn-preset" data-preset="target-site">target-site Test</button>
+          <button type="button" class="btn-preset" data-preset="turnstile">Turnstile Capture</button>
+          <button type="button" class="btn-preset" data-preset="post_json">POST JSON</button>
+        </div>
+      </div>
+
+      <form id="fetchForm" class="studio-form">
+        <!-- Main Command Bar -->
+        <div class="studio-command-bar">
+          <div class="method-selector-wrap">
+            <select id="requestMethod" class="method-select method-get">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="PATCH">PATCH</option>
+              <option value="HEAD">HEAD</option>
+            </select>
+          </div>
+          <div class="url-input-wrap">
+            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page" value="https://httpbin.org/get" required />
+            <button type="button" class="btn-input-clear" id="btnClearUrl" title="Clear URL">&times;</button>
+          </div>
+          <button type="submit" id="submitBtn" class="btn-send">
+            <svg class="svg-icon btn-send-icon" id="btnIcon" viewBox="0 0 24 24">
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
             <span id="btnLabel">Send Request</span>
+            <kbd class="kbd-shortcut">↵</kbd>
           </button>
         </div>
-        <div style="display:flex;gap:12px;width:100%;flex-wrap:wrap;align-items:center;">
-          <div class="input-wrapper" style="flex:1;min-width:280px;">
-            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-              <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-              <line x1="6" y1="6" x2="6.01" y2="6" />
-              <line x1="6" y1="18" x2="6.01" y2="18" />
-            </svg>
-            <input type="text" id="proxyInput" class="input-url" placeholder="Proxy: http://user:pass@host:port or direct (optional)" />
+
+        <!-- Studio Configuration Tabs -->
+        <div class="studio-config-card">
+          <div class="config-tabs-nav">
+            <button type="button" class="config-tab-btn active" data-cfg="cfgEngine">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Engine & Network
+            </button>
+            <button type="button" class="config-tab-btn" data-cfg="cfgHeaders">
+              <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              Headers & Body
+            </button>
+            <button type="button" class="config-tab-btn" data-cfg="cfgTurnstile">
+              <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Turnstile & Automation
+            </button>
+            <button type="button" class="config-tab-btn" data-cfg="cfgExtract">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              DOM Extraction
+            </button>
+            <button type="button" class="config-tab-btn" data-cfg="cfgCookies">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+              Session & Cookies
+            </button>
           </div>
-          <label style="display:inline-flex;align-items:center;gap:8px;font-size:0.86rem;color:var(--text-muted);cursor:pointer;user-select:none;padding:12px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);box-sizing:border-box;">
-            <input type="checkbox" id="forceBrowserInput" style="accent-color:var(--accent-orange);cursor:pointer;width:16px;height:16px;" />
-            <span>Force Browser</span>
-          </label>
+
+          <div class="config-tabs-content">
+            <!-- Tab 1: Engine & Network -->
+            <div class="config-pane active" id="cfgEngine">
+              <div class="cfg-grid-3">
+                <div class="cfg-field">
+                  <label class="cfg-label">Engine Routing Mode</label>
+                  <select id="cfgEngineMode" class="cfg-select">
+                    <option value="auto" selected>Auto (Fast HTTP → Escalates to Browser on challenge)</option>
+                    <option value="browser">Force Browser (CloakBrowser headless engine)</option>
+                    <option value="http">Force HTTP (Fast-path only, never escalate)</option>
+                  </select>
+                  <span class="cfg-hint">Auto mode delivers sub-second cached responses and escalates only when required.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Fingerprint Preset</label>
+                  <select id="cfgPreset" class="cfg-select">
+                    <option value="chrome-latest-windows" selected>Chrome Latest (Windows) — Recommended</option>
+                    <option value="chrome-latest-linux">Chrome Latest (Linux)</option>
+                    <option value="firefox-latest">Firefox Latest</option>
+                  </select>
+                  <span class="cfg-hint">Applies matching TLS Cipher suites, ALPN, and header casing order.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">HTTP Protocol Version</label>
+                  <select id="cfgHttpVersion" class="cfg-select">
+                    <option value="" selected>Auto / Negotiated (Default)</option>
+                    <option value="h2">HTTP/2 (h2)</option>
+                    <option value="h1">HTTP/1.1 (h1)</option>
+                    <option value="h3">HTTP/3 (h3)</option>
+                  </select>
+                  <span class="cfg-hint">Force specific HTTP protocol wire negotiation.</span>
+                </div>
+              </div>
+              <div class="cfg-grid-3" style="margin-top:16px;">
+                <div class="cfg-field" style="grid-column:span 2;">
+                  <label class="cfg-label">Egress Proxy URL</label>
+                  <div class="input-with-action">
+                    <input type="text" id="cfgProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for server default)" />
+                    <button type="button" class="btn-cfg-action" id="btnTestUserProxy" title="Insert User Proxy">Paste Saved</button>
+                  </div>
+                  <span class="cfg-hint">Supports HTTP, HTTPS, SOCKS5, and SOCKS5h proxies. Use <code>direct</code> to bypass default proxy.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Timeout (Seconds)</label>
+                  <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
+                  <span class="cfg-hint">Total request execution timeout window.</span>
+                </div>
+              </div>
+              <div class="cfg-grid-1" style="margin-top:16px;">
+                <div class="cfg-field">
+                  <label class="cfg-label">Custom User-Agent Override (Optional)</label>
+                  <input type="text" id="cfgUserAgent" class="cfg-input" placeholder="Leave blank to use preset's authentic browser User-Agent" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab 2: Headers & Body -->
+            <div class="config-pane" id="cfgHeaders">
+              <div class="cfg-split-view">
+                <div class="cfg-col">
+                  <div class="cfg-col-header">
+                    <label class="cfg-label" style="margin:0;">Custom Outbound Headers</label>
+                    <button type="button" class="btn-add-kv" id="btnAddHeaderRow">+ Add Header</button>
+                  </div>
+                  <div id="headersKvContainer" class="kv-container">
+                    <!-- Dynamic Key-Value Rows -->
+                  </div>
+                  <span class="cfg-hint">Custom headers are merged into the preset browser's natural pseudo-header sequence.</span>
+                </div>
+                <div class="cfg-col">
+                  <div class="cfg-col-header">
+                    <label class="cfg-label" style="margin:0;">Request Body Payload (POST / PUT / PATCH)</label>
+                    <button type="button" class="btn-add-kv" id="btnFormatBodyJson">Format JSON</button>
+                  </div>
+                  <textarea id="cfgBody" class="cfg-textarea" placeholder='{"key": "value"}' rows="6"></textarea>
+                  <span class="cfg-hint">Raw text or JSON payload. Automatically active for non-GET methods.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab 3: Turnstile & Automation -->
+            <div class="config-pane" id="cfgTurnstile">
+              <div class="cfg-grid-2">
+                <div class="cfg-field">
+                  <label class="cfg-label">Wait For CSS Selector (`wait_for_selector`)</label>
+                  <input type="text" id="cfgWaitForSelector" class="cfg-input" placeholder="e.g. .download-btn, #results-table" />
+                  <span class="cfg-hint">DOM element that must appear before returning. Forces browser if fast-path lacks it.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Click CSS Selector (`click_selector`)</label>
+                  <input type="text" id="cfgClickSelector" class="cfg-input" placeholder="e.g. button#continue, .submit-btn" />
+                  <span class="cfg-hint">Clicks element in browser once Turnstile/page resolves before capturing final DOM.</span>
+                </div>
+              </div>
+              <div class="cfg-grid-3" style="margin-top:16px;">
+                <div class="cfg-field">
+                  <label class="cfg-label">Challenge Settlement Timeout (`cf_wait`)</label>
+                  <input type="number" id="cfgCfWait" class="cfg-input" value="25.0" step="0.5" min="5" max="60" />
+                  <span class="cfg-hint">Max seconds for Cloudflare Turnstile to solve before timeout.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Page Load Strategy</label>
+                  <select id="cfgPageLoadState" class="cfg-select">
+                    <option value="complete" selected>Complete (Full load + network settlement)</option>
+                    <option value="interactive">Interactive (DOMContentLoaded)</option>
+                  </select>
+                  <span class="cfg-hint">Controls browser navigation readiness trigger.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Turnstile Automation Toggles</label>
+                  <div class="cfg-checkbox-group">
+                    <label class="toggle-control">
+                      <input type="checkbox" id="cfgCaptureToken" />
+                      <span class="toggle-label">Capture Response Token (`capture_token`)</span>
+                    </label>
+                    <label class="toggle-control">
+                      <input type="checkbox" id="cfgAutoToken" />
+                      <span class="toggle-label">Auto Detect & Solve (`auto_token`)</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab 4: DOM Extraction -->
+            <div class="config-pane" id="cfgExtract">
+              <div class="cfg-grid-3">
+                <div class="cfg-field" style="grid-column:span 2;">
+                  <label class="cfg-label">Target CSS Selector (`selector`)</label>
+                  <input type="text" id="cfgSelector" class="cfg-input" placeholder="e.g. a.download-link, h1.title, .movie-item" />
+                  <span class="cfg-hint">Runs Selectolax C-parser engine directly over the resolved HTML.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Attribute to Extract (`selector_attr`)</label>
+                  <input type="text" id="cfgSelectorAttr" class="cfg-input" value="text" placeholder="text, html, href, src, data-id..." />
+                  <span class="cfg-hint">Use <code>text</code> for inner text, <code>html</code> for outer HTML, or any HTML attribute.</span>
+                </div>
+              </div>
+              <div class="cfg-grid-2" style="margin-top:16px;">
+                <div class="cfg-field">
+                  <label class="cfg-label">Result Matching Mode</label>
+                  <select id="cfgSelectorAll" class="cfg-select">
+                    <option value="false" selected>First Match Only (Single string item)</option>
+                    <option value="true">All Matching Elements (Array of strings)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab 5: Session & Cookies -->
+            <div class="config-pane" id="cfgCookies">
+              <div class="cfg-grid-3">
+                <div class="cfg-field">
+                  <label class="cfg-label">Session Isolation ID (`session_id`)</label>
+                  <input type="text" id="cfgSessionId" class="cfg-input" placeholder="e.g. worker-task-1" />
+                  <span class="cfg-hint">Isolates cookies to this specific session namespace while sharing clearance.</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Cookie Cache TTL (Seconds)</label>
+                  <input type="number" id="cfgCookieTtl" class="cfg-input" value="86400" min="60" />
+                  <span class="cfg-hint">Duration to keep solved clearance in LRU store (Default: 86400s / 24h).</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label">Max Cookie Limit</label>
+                  <input type="number" id="cfgCookieLimit" class="cfg-input" value="35" min="5" max="100" />
+                  <span class="cfg-hint">Truncates oldest cookies to prevent HTTP 400 header overflow.</span>
+                </div>
+              </div>
+              <div style="margin-top:16px;">
+                <div class="cfg-col-header">
+                  <label class="cfg-label" style="margin:0;">Custom Injected Cookies (`inject_cookies`)</label>
+                  <button type="button" class="btn-add-kv" id="btnAddCookieRow">+ Add Cookie</button>
+                </div>
+                <div id="cookiesKvContainer" class="kv-container">
+                  <!-- Dynamic Key-Value Rows -->
+                </div>
+                <span class="cfg-hint">Injected into request before transmission.</span>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
 
-      <!-- Response Card -->
-      <div class="response-panel">
+      <!-- Response Panel -->
+      <div class="response-panel" id="responsePanel">
         <div class="response-metrics">
           <div class="metric-pill" id="statusPill">Status: Idle</div>
           <div class="metric-pill" id="viaPill">Engine: --</div>
           <div class="metric-pill" id="cachePill">Cache: --</div>
+          <div class="metric-pill" id="protocolPill">Proto: --</div>
+          <div class="metric-pill" id="cookiesUsedPill">Cookies: 0</div>
           <div class="metric-pill" id="timePill">Latency: -- ms</div>
+          <div class="response-quick-actions">
+            <button type="button" class="btn-quick-action" id="btnCopyJson" title="Copy JSON Response">
+              <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy JSON</span>
+            </button>
+          </div>
         </div>
 
         <div class="tab-nav">
           <button type="button" class="tab-btn active" data-tab="jsonTab">
-            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
-              <polyline points="16 18 22 12 16 6" />
-              <polyline points="8 6 2 12 8 18" />
-            </svg>
-            JSON Response
+            <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            JSON Output
           </button>
           <button type="button" class="tab-btn" data-tab="htmlTab">
-            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            HTML Body Preview
+            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            HTML Preview
+          </button>
+          <button type="button" class="tab-btn" data-tab="extractedTab">
+            <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Extracted (<span id="extractedCount">0</span>)
           </button>
           <button type="button" class="tab-btn" data-tab="browserStateTab">
-            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M8 12h8" />
-            </svg>
+            <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
             Cookies (<span id="cookieCount">0</span>)
           </button>
           <button type="button" class="tab-btn" data-tab="headersTab">
-            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
-              <line x1="8" y1="6" x2="21" y2="6" />
-              <line x1="8" y1="12" x2="21" y2="12" />
-              <line x1="8" y1="18" x2="21" y2="18" />
-              <line x1="3" y1="6" x2="3.01" y2="6" />
-              <line x1="3" y1="12" x2="3.01" y2="12" />
-              <line x1="3" y1="18" x2="3.01" y2="18" />
-            </svg>
+            <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             Headers
           </button>
           <button type="button" class="tab-btn" data-tab="logsTab">
-            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-            Execution Logs (<span id="logsCount">0</span>)
+            <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Pipeline Logs (<span id="logsCount">0</span>)
+          </button>
+          <button type="button" class="tab-btn" data-tab="turnstileTab" id="tabBtnTurnstile" style="display:none;">
+            <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Turnstile Token
           </button>
         </div>
 
         <div class="tab-content">
           <!-- JSON View -->
           <div class="tab-pane active" id="jsonTab">
-            <pre><code id="jsonOutput">// Click "Send Request" to inspect the JSON output payload with colorful syntax highlighting...</code></pre>
+            <pre><code id="jsonOutput">// Configure request parameters above and click "Send Request"...</code></pre>
           </div>
 
-          <!-- HTML Preview -->
+          <!-- HTML Preview (Code + Sandboxed Iframe) -->
           <div class="tab-pane" id="htmlTab">
-            <pre><code id="htmlOutput">&lt;!-- Body content preview will render here --&gt;</code></pre>
+            <div class="html-preview-controls">
+              <div class="preview-mode-switch">
+                <button type="button" class="btn-preview-mode active" id="btnPreviewCode">Code Syntax</button>
+                <button type="button" class="btn-preview-mode" id="btnPreviewFrame">Rendered View (Sandbox)</button>
+              </div>
+              <span style="font-size:0.78rem;color:var(--text-muted);" id="htmlSizeNotice">0 bytes</span>
+            </div>
+            <div id="htmlCodeContainer">
+              <pre><code id="htmlOutput">&lt;!-- Response body preview renders here --&gt;</code></pre>
+            </div>
+            <div id="htmlFrameContainer" style="display:none;">
+              <iframe id="previewIframe" class="preview-iframe" sandbox="allow-same-origin allow-scripts" title="Preview Frame"></iframe>
+            </div>
+          </div>
+
+          <!-- Extracted View -->
+          <div class="tab-pane" id="extractedTab">
+            <div id="extractedList" class="empty-tab-msg">No extraction selector specified in request.</div>
           </div>
 
           <!-- Cookies View -->
@@ -242,9 +501,96 @@
 
           <!-- Execution Logs View -->
           <div class="tab-pane" id="logsTab">
-            <div id="logsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">//
-              Step-by-step pipeline execution logs will stream here...</div>
+            <div id="logsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Step-by-step pipeline execution logs stream here...</div>
           </div>
+
+          <!-- Turnstile Token View -->
+          <div class="tab-pane" id="turnstileTab">
+            <div id="turnstileContent">No Turnstile token requested.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Domain Cache Explorer Section -->
+    <section class="section-box" id="cache" style="margin-top:48px;">
+      <div class="section-header">
+        <div class="section-title-wrap">
+          <h2 class="section-title">
+            <svg class="svg-icon" style="color:var(--accent-cyan)" viewBox="0 0 24 24">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            Domain Cache Explorer
+          </h2>
+          <p class="section-subtitle">Real-time inspection of in-memory Cloudflare clearance sessions, cookie jars, and browser pool tab allocation.</p>
+        </div>
+        <div class="cache-header-actions">
+          <div class="cache-search-wrap">
+            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="cacheSearchInput" class="cache-search-input" placeholder="Filter domains..." />
+          </div>
+          <button type="button" class="btn-refresh-cache" id="btnRefreshCache" title="Refresh Live Cache">
+            <svg class="svg-icon" id="refreshCacheIcon" viewBox="0 0 24 24">
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Cache Metrics Summary Cards -->
+      <div class="cache-stats-grid">
+        <div class="cache-stat-card">
+          <div class="cache-stat-header">
+            <span class="cache-stat-label">Cached Domains</span>
+            <span class="cache-stat-tag">LRU Store</span>
+          </div>
+          <div class="cache-stat-val" id="statCachedDomains">0</div>
+          <div class="cache-stat-desc">Active domain cookie jars held in memory</div>
+        </div>
+
+        <div class="cache-stat-card">
+          <div class="cache-stat-header">
+            <span class="cache-stat-label">Browser Pool Tabs</span>
+            <span class="cache-stat-tag">CloakBrowser</span>
+          </div>
+          <div class="cache-stat-val" id="statActiveTabs">0 / 0</div>
+          <div class="cache-stat-desc">Active solver tabs running concurrently</div>
+        </div>
+
+        <div class="cache-stat-card">
+          <div class="cache-stat-header">
+            <span class="cache-stat-label">Total In-Memory Cookies</span>
+            <span class="cache-stat-tag">Sessions</span>
+          </div>
+          <div class="cache-stat-val" id="statTotalCookies">0</div>
+          <div class="cache-stat-desc">Harvested clearance & session tokens</div>
+        </div>
+
+        <div class="cache-stat-card">
+          <div class="cache-stat-header">
+            <span class="cache-stat-label">Fast-Path Efficiency</span>
+            <span class="cache-stat-tag">Status</span>
+          </div>
+          <div class="cache-stat-val" style="color:var(--accent-green);" id="statFastPathStatus">Ready</div>
+          <div class="cache-stat-desc">Bypasses solver on repeat visits</div>
+        </div>
+      </div>
+
+      <!-- Dynamic Cache Grid -->
+      <div id="cacheGrid" class="cache-cards-grid">
+        <!-- Rendered by JavaScript -->
+        <div class="cache-loading-msg" id="cacheLoadingMsg">
+          <div class="cache-empty-icon">
+            <svg class="svg-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <p>Loading active domain cache entries...</p>
         </div>
       </div>
     </section>

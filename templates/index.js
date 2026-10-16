@@ -1,8 +1,16 @@
 /**
- * Anti API — Interactive Documentation & Live Playground Client
+ * Anti API — Full-Featured Stealth Request Studio & Domain Cache Explorer
  */
 
-// Colorful JSON Syntax Highlighter
+// Global State
+let currentResponseData = null;
+let cachedDomainsData = {};
+let ttlIntervalTimer = null;
+
+// ==========================================================================
+// Syntax Highlighters
+// ==========================================================================
+
 function syntaxHighlight(json) {
   if (typeof json !== 'string') {
     json = JSON.stringify(json, undefined, 2);
@@ -25,13 +33,10 @@ function syntaxHighlight(json) {
   });
 }
 
-// Colorful HTML & XML Syntax Highlighter
 function highlightHtml(html) {
   if (!html) return '<span style="color:var(--text-muted)">&lt;!-- Empty body response --&gt;</span>';
   let escaped = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // HTML comments
   escaped = escaped.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="json-comment">$1</span>');
-  // Tags and attributes
   escaped = escaped.replace(/(&lt;\/?[a-zA-Z0-9\-:]+)([\s\S]*?)(&gt;)/g, function (m, tag, attrs, close) {
     let tagHtml = '<span class="json-key">' + tag + '</span>';
     let attrsHtml = attrs.replace(/([a-zA-Z0-9\-:]+)=(".*?"|'.*?'|[^\s>]+)/g, '<span class="json-boolean">$1</span>=<span class="json-string">$2</span>');
@@ -41,12 +46,143 @@ function highlightHtml(html) {
   return escaped;
 }
 
-// Response Tab Navigation Switcher
+// ==========================================================================
+// Authentication Vault Manager
+// ==========================================================================
+
+const globalApiKeyInput = document.getElementById('globalApiKeyInput');
+const btnSaveApiKey = document.getElementById('btnSaveApiKey');
+const btnClearApiKey = document.getElementById('btnClearApiKey');
+const btnToggleKeyVisibility = document.getElementById('btnToggleKeyVisibility');
+const eyeIcon = document.getElementById('eyeIcon');
+const vaultStatusPill = document.getElementById('vaultStatusPill');
+const headerKeyBadge = document.getElementById('headerKeyBadge');
+const headerKeyDot = document.getElementById('headerKeyDot');
+const headerKeyText = document.getElementById('headerKeyText');
+
+function getStoredApiKey() {
+  try {
+    return localStorage.getItem('anti_api_key') || localStorage.getItem('anti_playground_api_key') || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function setStoredApiKey(key) {
+  try {
+    if (key) {
+      localStorage.setItem('anti_api_key', key);
+      localStorage.setItem('anti_playground_api_key', key);
+    } else {
+      localStorage.removeItem('anti_api_key');
+      localStorage.removeItem('anti_playground_api_key');
+    }
+  } catch (e) {}
+}
+
+function updateApiKeyUI(key) {
+  const hasKey = Boolean(key && key.trim());
+  if (globalApiKeyInput) {
+    globalApiKeyInput.value = key || '';
+  }
+  if (vaultStatusPill) {
+    if (hasKey) {
+      vaultStatusPill.className = 'vault-status-pill saved';
+      vaultStatusPill.textContent = 'Key Active';
+    } else {
+      vaultStatusPill.className = 'vault-status-pill';
+      vaultStatusPill.textContent = 'Key Required';
+    }
+  }
+  if (headerKeyBadge && headerKeyText && headerKeyDot) {
+    if (hasKey) {
+      headerKeyBadge.style.background = 'rgba(22, 163, 74, 0.1)';
+      headerKeyBadge.style.borderColor = 'rgba(22, 163, 74, 0.25)';
+      headerKeyBadge.style.color = 'var(--accent-green)';
+      headerKeyDot.style.background = 'var(--accent-green)';
+      headerKeyDot.style.boxShadow = '0 0 8px var(--accent-green)';
+      headerKeyText.textContent = 'API Key Configured';
+    } else {
+      headerKeyBadge.style.background = 'rgba(234, 88, 12, 0.1)';
+      headerKeyBadge.style.borderColor = 'rgba(234, 88, 12, 0.25)';
+      headerKeyBadge.style.color = 'var(--accent-orange)';
+      headerKeyDot.style.background = 'var(--accent-orange)';
+      headerKeyDot.style.boxShadow = '0 0 8px var(--accent-orange)';
+      headerKeyText.textContent = 'API Key Required';
+    }
+  }
+}
+
+// Initial Key Load
+const initialKey = getStoredApiKey();
+updateApiKeyUI(initialKey);
+
+if (btnSaveApiKey && globalApiKeyInput) {
+  btnSaveApiKey.addEventListener('click', () => {
+    const val = globalApiKeyInput.value.trim();
+    if (!val) {
+      globalApiKeyInput.focus();
+      return;
+    }
+    setStoredApiKey(val);
+    updateApiKeyUI(val);
+    btnSaveApiKey.textContent = 'Saved!';
+    setTimeout(() => { btnSaveApiKey.textContent = 'Save Key'; }, 1800);
+    loadCacheExplorer();
+  });
+}
+
+if (btnClearApiKey && globalApiKeyInput) {
+  btnClearApiKey.addEventListener('click', () => {
+    setStoredApiKey('');
+    updateApiKeyUI('');
+    globalApiKeyInput.value = '';
+    loadCacheExplorer();
+  });
+}
+
+if (btnToggleKeyVisibility && globalApiKeyInput) {
+  btnToggleKeyVisibility.addEventListener('click', () => {
+    const isPassword = globalApiKeyInput.type === 'password';
+    globalApiKeyInput.type = isPassword ? 'text' : 'password';
+    if (eyeIcon) {
+      eyeIcon.innerHTML = isPassword
+        ? '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>'
+        : '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+    }
+  });
+}
+
+if (headerKeyBadge) {
+  headerKeyBadge.addEventListener('click', () => {
+    const vault = document.getElementById('apiVaultCard');
+    if (vault) {
+      vault.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (globalApiKeyInput) globalApiKeyInput.focus();
+    }
+  });
+}
+
+// ==========================================================================
+// Navigation & Tab Switchers
+// ==========================================================================
+
+// Config Tabs
+document.querySelectorAll('.config-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.config-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.config-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const target = document.getElementById(btn.getAttribute('data-cfg'));
+    if (target) target.classList.add('active');
+  });
+});
+
+// Response Tabs
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-
     btn.classList.add('active');
     const target = document.getElementById(btn.getAttribute('data-tab'));
     if (target) {
@@ -57,19 +193,18 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-// Guide Tab Navigation Switcher
+// Guide Tabs
 document.querySelectorAll('.guide-tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.guide-tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.guide-pane').forEach(p => p.classList.remove('active'));
-
     btn.classList.add('active');
     const target = document.getElementById(btn.getAttribute('data-guide'));
     if (target) target.classList.add('active');
   });
 });
 
-// In-text links that jump to a specific guide tab (e.g. the Proxies guide)
+// In-text Guide Links
 document.querySelectorAll('[data-open-guide]').forEach(link => {
   link.addEventListener('click', () => {
     const btn = document.querySelector(`.guide-tab-btn[data-guide="${link.getAttribute('data-open-guide')}"]`);
@@ -77,291 +212,485 @@ document.querySelectorAll('[data-open-guide]').forEach(link => {
   });
 });
 
-// In-memory quota state tracked from server
-let serverQuota = { limit: 10, used: 0, remaining: 10 };
-
-function updatePlaygroundQuotaUI(quotaData) {
-  if (quotaData) {
-    serverQuota = quotaData;
-  }
-  const quotaEl = document.getElementById('dailyQuota');
-  if (quotaEl) {
-    quotaEl.textContent = `${serverQuota.remaining}/${serverQuota.limit}`;
-    const ratio = serverQuota.limit ? serverQuota.remaining / serverQuota.limit : 0;
-    if (ratio <= 0.2) {
-      quotaEl.style.color = '#f43f5e';
-    } else if (ratio <= 0.5) {
-      quotaEl.style.color = '#fbbf24';
-    } else {
-      quotaEl.style.color = '#4ade80';
-    }
-  }
-}
-
-// Live Health & Quota Status Checker
-async function checkHealth() {
-  const statusText = document.getElementById('statusText');
-  const liveStatusBadge = document.getElementById('liveStatusBadge');
-  try {
-    const res = await fetch('/health');
-    const data = await res.json();
-    if (data.status === 'ok') {
-      statusText.textContent = `Online (${data.domains_cached} cached)`;
-      liveStatusBadge.style.color = 'var(--accent-green)';
-      if (data.quota) {
-        updatePlaygroundQuotaUI(data.quota);
+// Method Selector Styling
+const requestMethod = document.getElementById('requestMethod');
+if (requestMethod) {
+  requestMethod.addEventListener('change', () => {
+    requestMethod.className = `method-select method-${requestMethod.value.toLowerCase()}`;
+    const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(requestMethod.value);
+    if (isBodyMethod) {
+      const headersTabBtn = document.querySelector('.config-tab-btn[data-cfg="cfgHeaders"]');
+      if (headersTabBtn && !document.getElementById('cfgHeaders').classList.contains('active')) {
+        headersTabBtn.click();
       }
     }
-  } catch (err) {
-    statusText.textContent = 'Offline';
-    liveStatusBadge.style.color = '#ef4444';
+  });
+}
+
+// Clear URL Button
+const btnClearUrl = document.getElementById('btnClearUrl');
+const targetUrl = document.getElementById('targetUrl');
+if (btnClearUrl && targetUrl) {
+  btnClearUrl.addEventListener('click', () => {
+    targetUrl.value = '';
+    targetUrl.focus();
+  });
+}
+
+// ==========================================================================
+// Key-Value Rows Editor (Headers & Cookies)
+// ==========================================================================
+
+function createKvRow(key = '', val = '') {
+  const row = document.createElement('div');
+  row.className = 'kv-row';
+  row.innerHTML = `
+    <input type="text" class="kv-key" placeholder="Header name" value="${key.replace(/"/g, '&quot;')}" />
+    <input type="text" class="kv-val" placeholder="Value" value="${val.replace(/"/g, '&quot;')}" />
+    <button type="button" class="btn-remove-kv" title="Remove row">&times;</button>
+  `;
+  row.querySelector('.btn-remove-kv').addEventListener('click', () => row.remove());
+  return row;
+}
+
+function getKvPairs(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return {};
+  const pairs = {};
+  container.querySelectorAll('.kv-row').forEach(row => {
+    const k = row.querySelector('.kv-key').value.trim();
+    const v = row.querySelector('.kv-val').value.trim();
+    if (k) pairs[k] = v;
+  });
+  return pairs;
+}
+
+const btnAddHeaderRow = document.getElementById('btnAddHeaderRow');
+if (btnAddHeaderRow) {
+  btnAddHeaderRow.addEventListener('click', () => {
+    document.getElementById('headersKvContainer').appendChild(createKvRow());
+  });
+}
+
+const btnAddCookieRow = document.getElementById('btnAddCookieRow');
+if (btnAddCookieRow) {
+  btnAddCookieRow.addEventListener('click', () => {
+    const row = createKvRow();
+    row.querySelector('.kv-key').placeholder = 'Cookie name';
+    document.getElementById('cookiesKvContainer').appendChild(row);
+  });
+}
+
+// Format JSON Body
+const btnFormatBodyJson = document.getElementById('btnFormatBodyJson');
+const cfgBody = document.getElementById('cfgBody');
+if (btnFormatBodyJson && cfgBody) {
+  btnFormatBodyJson.addEventListener('click', () => {
+    const text = cfgBody.value.trim();
+    if (!text) return;
+    try {
+      const parsed = JSON.parse(text);
+      cfgBody.value = JSON.stringify(parsed, null, 2);
+    } catch (e) {
+      alert('Invalid JSON: ' + e.message);
+    }
+  });
+}
+
+// Paste Saved Proxy Helper
+const btnTestUserProxy = document.getElementById('btnTestUserProxy');
+const cfgProxy = document.getElementById('cfgProxy');
+if (btnTestUserProxy && cfgProxy) {
+  btnTestUserProxy.addEventListener('click', () => {
+    const saved = localStorage.getItem('anti_playground_proxy') || '';
+    cfgProxy.value = saved;
+  });
+}
+
+// ==========================================================================
+// Preset Configurations
+// ==========================================================================
+
+document.querySelectorAll('.btn-preset').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const preset = btn.getAttribute('data-preset');
+    if (!targetUrl || !requestMethod) return;
+
+    if (preset === 'httpbin') {
+      requestMethod.value = 'GET';
+      requestMethod.className = 'method-select method-get';
+      targetUrl.value = 'https://httpbin.org/get';
+      document.getElementById('cfgEngineMode').value = 'auto';
+    } else if (preset === 'target-site') {
+      requestMethod.value = 'GET';
+      requestMethod.className = 'method-select method-get';
+      targetUrl.value = 'https://sub.target-site.example/f/RX7XLEBW51z-HrctS8R6yhz84Nvkvm_qflSYpeFJSAo5M6SXWF-JrwuSYhJEtg';
+      document.getElementById('cfgEngineMode').value = 'auto';
+    } else if (preset === 'turnstile') {
+      requestMethod.value = 'GET';
+      requestMethod.className = 'method-select method-get';
+      targetUrl.value = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      document.getElementById('cfgCaptureToken').checked = true;
+      document.getElementById('cfgWaitForSelector').value = 'body';
+      document.querySelector('.config-tab-btn[data-cfg="cfgTurnstile"]').click();
+    } else if (preset === 'post_json') {
+      requestMethod.value = 'POST';
+      requestMethod.className = 'method-select method-post';
+      targetUrl.value = 'https://httpbin.org/post';
+      cfgBody.value = JSON.stringify({ message: 'Hello from Anti Stealth Studio', timestamp: new Date().toISOString() }, null, 2);
+      document.querySelector('.config-tab-btn[data-cfg="cfgHeaders"]').click();
+    }
+  });
+});
+
+// ==========================================================================
+// HTML Preview (Code vs Sandboxed Iframe)
+// ==========================================================================
+
+const btnPreviewCode = document.getElementById('btnPreviewCode');
+const btnPreviewFrame = document.getElementById('btnPreviewFrame');
+const htmlCodeContainer = document.getElementById('htmlCodeContainer');
+const htmlFrameContainer = document.getElementById('htmlFrameContainer');
+const previewIframe = document.getElementById('previewIframe');
+const htmlSizeNotice = document.getElementById('htmlSizeNotice');
+
+if (btnPreviewCode && btnPreviewFrame) {
+  btnPreviewCode.addEventListener('click', () => {
+    btnPreviewCode.classList.add('active');
+    btnPreviewFrame.classList.remove('active');
+    htmlCodeContainer.style.display = 'block';
+    htmlFrameContainer.style.display = 'none';
+  });
+
+  btnPreviewFrame.addEventListener('click', () => {
+    btnPreviewFrame.classList.add('active');
+    btnPreviewCode.classList.remove('active');
+    htmlCodeContainer.style.display = 'none';
+    htmlFrameContainer.style.display = 'block';
+  });
+}
+
+function updateHtmlPreview(html) {
+  const output = document.getElementById('htmlOutput');
+  const size = html ? new Blob([html]).size : 0;
+  if (htmlSizeNotice) {
+    htmlSizeNotice.textContent = size > 1024 ? `${(size / 1024).toFixed(1)} KB` : `${size} bytes`;
+  }
+  if (!html) {
+    if (output) output.innerHTML = '<span style="color:var(--text-muted)">&lt;!-- Empty response body --&gt;</span>';
+    if (previewIframe) previewIframe.srcdoc = '<html><body style="font-family:sans-serif;color:#888;padding:20px;">Empty Body</body></html>';
+    return;
+  }
+  if (output) {
+    output.innerHTML = highlightHtml(html);
+  }
+  if (previewIframe) {
+    // Inject base href and render securely in sandboxed frame
+    try {
+      const url = targetUrl.value.trim();
+      let baseTag = '';
+      if (url) {
+        baseTag = `<base href="${url}">`;
+      }
+      previewIframe.srcdoc = html.includes('<head>') ? html.replace('<head>', `<head>${baseTag}`) : baseTag + html;
+    } catch (e) {
+      previewIframe.srcdoc = html;
+    }
   }
 }
-checkHealth();
-setInterval(checkHealth, 10000);
 
-// Form Submission & Live Runner
+// Copy JSON Response Helper
+const btnCopyJson = document.getElementById('btnCopyJson');
+if (btnCopyJson) {
+  btnCopyJson.addEventListener('click', () => {
+    if (!currentResponseData) return;
+    navigator.clipboard.writeText(JSON.stringify(currentResponseData, null, 2)).then(() => {
+      const span = btnCopyJson.querySelector('span');
+      if (span) {
+        const orig = span.textContent;
+        span.textContent = 'Copied!';
+        setTimeout(() => { span.textContent = orig; }, 1800);
+      }
+    });
+  });
+}
+
+// Keyboard Shortcut: Ctrl+Enter / Cmd+Enter sends form
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    const fetchForm = document.getElementById('fetchForm');
+    if (fetchForm && !document.getElementById('submitBtn').disabled) {
+      fetchForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }
+  }
+});
+
+// ==========================================================================
+// Studio Request Runner
+// ==========================================================================
+
 const fetchForm = document.getElementById('fetchForm');
-const targetUrlInput = document.getElementById('targetUrl');
-const apiKeyInput = document.getElementById('apiKeyInput');
-const proxyInput = document.getElementById('proxyInput');
-const forceBrowserInput = document.getElementById('forceBrowserInput');
 const submitBtn = document.getElementById('submitBtn');
 const btnLabel = document.getElementById('btnLabel');
 const jsonOutput = document.getElementById('jsonOutput');
-const htmlOutput = document.getElementById('htmlOutput');
-const browserStateList = document.getElementById('browserStateList');
-const headersList = document.getElementById('headersList');
-const cookieCount = document.getElementById('cookieCount');
-const logsList = document.getElementById('logsList');
-const logsCount = document.getElementById('logsCount');
-
 const statusPill = document.getElementById('statusPill');
 const viaPill = document.getElementById('viaPill');
 const cachePill = document.getElementById('cachePill');
+const protocolPill = document.getElementById('protocolPill');
+const cookiesUsedPill = document.getElementById('cookiesUsedPill');
 const timePill = document.getElementById('timePill');
-
-// Restore saved API key and proxy from localStorage
-try {
-  if (apiKeyInput) {
-    const savedKey = localStorage.getItem('anti_playground_api_key');
-    if (savedKey) apiKeyInput.value = savedKey;
-  }
-  if (proxyInput) {
-    const savedProxy = localStorage.getItem('anti_playground_proxy');
-    if (savedProxy) proxyInput.value = savedProxy;
-  }
-} catch (e) {}
+const logsList = document.getElementById('logsList');
+const logsCount = document.getElementById('logsCount');
+const browserStateList = document.getElementById('browserStateList');
+const cookieCount = document.getElementById('cookieCount');
+const headersList = document.getElementById('headersList');
+const extractedList = document.getElementById('extractedList');
+const extractedCount = document.getElementById('extractedCount');
+const tabBtnTurnstile = document.getElementById('tabBtnTurnstile');
+const turnstileContent = document.getElementById('turnstileContent');
 
 fetchForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const url = targetUrlInput.value.trim();
+  const url = targetUrl.value.trim();
   if (!url) return;
 
-  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
-  const proxy = proxyInput ? proxyInput.value.trim() : '';
-  const forceBrowser = forceBrowserInput ? forceBrowserInput.checked : false;
-
-  // Persist inputs to localStorage
-  try {
-    if (apiKey) localStorage.setItem('anti_playground_api_key', apiKey);
-    else localStorage.removeItem('anti_playground_api_key');
-
-    if (proxy) localStorage.setItem('anti_playground_proxy', proxy);
-    else localStorage.removeItem('anti_playground_proxy');
-  } catch (e) {}
-
-  // If no API key and server quota is already 0, block early
-  if (!apiKey && serverQuota.remaining <= 0) {
+  const apiKey = (globalApiKeyInput ? globalApiKeyInput.value.trim() : '') || getStoredApiKey();
+  if (!apiKey) {
     statusPill.className = 'metric-pill amber';
-    statusPill.textContent = 'Quota Exceeded';
-    jsonOutput.innerHTML = `<span style="color:#f43f5e">// [429 Too Many Requests]\nDaily server demo limit (${serverQuota.limit}/${serverQuota.limit}) reached.\nPlease provide a valid X-API-Key in the input box for unlimited scraping.</span>`;
+    statusPill.textContent = 'API Key Required';
+    jsonOutput.innerHTML = `<span style="color:#f43f5e">// [401 Unauthorized]\nX-API-Key is strictly required.\nPlease enter your secret API key in the Authentication Vault above.</span>`;
     if (logsList) {
-      logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[RATE-LIMIT] In-memory server quota exhausted (${serverQuota.limit}/${serverQuota.limit}). Provide an API Key to bypass demo limit.</div>`;
+      logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] Aborted: X-API-Key missing. Set your key in the Authentication Vault.</div>`;
+    }
+    const vault = document.getElementById('apiVaultCard');
+    if (vault) {
+      vault.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (globalApiKeyInput) globalApiKeyInput.focus();
     }
     return;
   }
 
+  // Save proxy if provided
+  const proxyVal = document.getElementById('cfgProxy').value.trim();
+  if (proxyVal) {
+    try { localStorage.setItem('anti_playground_proxy', proxyVal); } catch (e) {}
+  }
+
   submitBtn.disabled = true;
-  btnLabel.textContent = 'Processing...';
+  btnLabel.textContent = 'Executing...';
 
   statusPill.className = 'metric-pill amber';
-  statusPill.textContent = 'Status: Fetching...';
+  statusPill.textContent = 'Status: Routing...';
   viaPill.className = 'metric-pill';
   viaPill.textContent = 'Engine: --';
   cachePill.className = 'metric-pill';
   cachePill.textContent = 'Cache: --';
-  timePill.className = 'metric-pill';
-  timePill.textContent = 'Latency: --';
+  protocolPill.textContent = 'Proto: --';
+  cookiesUsedPill.textContent = 'Cookies: --';
+  timePill.textContent = 'Latency: -- ms';
 
-  const responseTabContent = document.querySelector('.response-panel .tab-content');
-  if (responseTabContent) responseTabContent.scrollTop = 0;
-
+  jsonOutput.innerHTML = '// Dispatching request through stealth pipeline...';
+  if (logsList) logsList.innerHTML = '<div style="color:#fb923c">// Negotiating wire handshake...</div>';
   if (logsCount) logsCount.textContent = '...';
-  if (logsList) logsList.innerHTML = '<div style="color:#fb923c">// Executing stealth dual-engine pipeline...</div>';
-  jsonOutput.innerHTML = '// Running dual-engine pipeline...';
+
+  // Build Payload Schema
+  const method = requestMethod.value;
+  const engineMode = document.getElementById('cfgEngineMode').value;
+  const preset = document.getElementById('cfgPreset').value;
+  const httpVersion = document.getElementById('cfgHttpVersion').value;
+  const timeout = parseInt(document.getElementById('cfgTimeout').value, 10) || 30;
+  const userAgent = document.getElementById('cfgUserAgent').value.trim();
+
+  const customHeaders = getKvPairs('headersKvContainer');
+  const customCookies = getKvPairs('cookiesKvContainer');
+  const bodyText = cfgBody.value.trim();
+
+  const waitForSelector = document.getElementById('cfgWaitForSelector').value.trim();
+  const clickSelector = document.getElementById('cfgClickSelector').value.trim();
+  const cfWait = parseFloat(document.getElementById('cfgCfWait').value) || 25.0;
+  const pageLoadState = document.getElementById('cfgPageLoadState').value;
+  const captureToken = document.getElementById('cfgCaptureToken').checked;
+  const autoToken = document.getElementById('cfgAutoToken').checked;
+
+  const selector = document.getElementById('cfgSelector').value.trim();
+  const selectorAttr = document.getElementById('cfgSelectorAttr').value.trim() || 'text';
+  const selectorAll = document.getElementById('cfgSelectorAll').value === 'true';
+
+  const sessionId = document.getElementById('cfgSessionId').value.trim();
+  const cookieTtl = parseInt(document.getElementById('cfgCookieTtl').value, 10) || 86400;
+  const cookieLimit = parseInt(document.getElementById('cfgCookieLimit').value, 10) || 35;
+
+  const payload = {
+    url: url,
+    method: method,
+    preset: preset,
+    timeout: timeout,
+    cf_wait: cfWait,
+    page_load_state: pageLoadState,
+    cookie_ttl: cookieTtl,
+    cookie_limit: cookieLimit
+  };
+
+  if (engineMode === 'browser') payload.force_browser = true;
+  if (engineMode === 'http') payload.force_http = true;
+  if (proxyVal) payload.proxy = proxyVal;
+  if (httpVersion) payload.http_version = httpVersion;
+  if (userAgent) payload.user_agent = userAgent;
+  if (Object.keys(customHeaders).length > 0) payload.headers = customHeaders;
+  if (Object.keys(customCookies).length > 0) payload.inject_cookies = customCookies;
+  if (['POST', 'PUT', 'PATCH'].includes(method) && bodyText) payload.body = bodyText;
+
+  if (waitForSelector) payload.wait_for_selector = waitForSelector;
+  if (clickSelector) payload.click_selector = clickSelector;
+  if (captureToken) payload.capture_token = true;
+  if (autoToken) payload.auto_token = true;
+
+  if (selector) {
+    payload.selector = selector;
+    payload.selector_attr = selectorAttr;
+    payload.selector_all = selectorAll;
+  }
+  if (sessionId) payload.session_id = sessionId;
 
   const t0 = performance.now();
 
   try {
-    const reqHeaders = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      reqHeaders['X-API-Key'] = apiKey;
-    }
-
-    const payload = { url: url };
-    if (proxy) payload.proxy = proxy;
-    if (forceBrowser) payload.force_browser = true;
-
-    const endpoint = apiKey ? '/fetch' : '/playground/fetch';
-    const res = await fetch(endpoint, {
+    const res = await fetch('/fetch', {
       method: 'POST',
-      headers: reqHeaders,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey
+      },
       body: JSON.stringify(payload)
     });
 
     const elapsed = Math.round(performance.now() - t0);
     const data = await res.json();
-
-    // Refresh live quota from server
-    checkHealth();
-
-    // Handle 429 Rate Limit
-    if (res.status === 429) {
-      statusPill.className = 'metric-pill amber';
-      statusPill.textContent = '429 Rate Limited';
-      viaPill.textContent = 'Engine: --';
-      cachePill.textContent = 'Cache: --';
-      timePill.textContent = `Latency: ${elapsed} ms`;
-      jsonOutput.innerHTML = syntaxHighlight(data);
-      if (logsList) {
-        logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[429 RATE-LIMIT] ${data.detail || 'Daily server demo limit reached. Provide a valid X-API-Key.'}</div>`;
-      }
-      return;
-    }
+    currentResponseData = data;
 
     // Handle 401 Unauthorized
     if (res.status === 401) {
       statusPill.className = 'metric-pill amber';
       statusPill.textContent = '401 Unauthorized';
-      viaPill.textContent = 'Engine: --';
-      cachePill.textContent = 'Cache: --';
       timePill.textContent = `Latency: ${elapsed} ms`;
       jsonOutput.innerHTML = syntaxHighlight(data);
-      if (logsList) {
-        logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH-ERROR] 401 Unauthorized: Invalid API Key. Please verify your X-API-Key.</div>`;
-      }
+      if (logsList) logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] 401 Unauthorized: Invalid X-API-Key.</div>`;
       return;
     }
 
     // Update Status Pill
-    if (data.status_code >= 200 && data.status_code < 300) {
+    const code = data.status_code || res.status;
+    if (code >= 200 && code < 300) {
       statusPill.className = 'metric-pill success';
-      statusPill.textContent = `Status: ${data.status_code} OK`;
+      statusPill.textContent = `Status: ${code} OK`;
+    } else if (code === 429) {
+      statusPill.className = 'metric-pill amber';
+      statusPill.textContent = `Status: 429 Rate Limited`;
     } else {
       statusPill.className = 'metric-pill amber';
-      statusPill.textContent = `Status: ${data.status_code || res.status}`;
+      statusPill.textContent = `Status: ${code}`;
     }
 
-    // Engine Pill
-    const engine = data.meta ? data.meta.via : 'http';
-    viaPill.className = engine === 'http' ? 'metric-pill info' : 'metric-pill purple';
-    viaPill.textContent = `Engine: ${engine}`;
+    // Engine & Metadata Pills
+    const meta = data.meta || {};
+    const via = meta.via || 'http';
+    viaPill.className = via === 'http' ? 'metric-pill info' : 'metric-pill purple';
+    viaPill.textContent = `Engine: ${via.toUpperCase()}`;
 
-    // Cache Hit Pill
-    const isCacheHit = data.meta && data.meta.cache_hit;
-    cachePill.className = isCacheHit ? 'metric-pill success' : 'metric-pill';
-    cachePill.textContent = `Cache: ${isCacheHit ? 'Hit' : 'Miss'}`;
+    const isHit = Boolean(meta.cache_hit);
+    cachePill.className = isHit ? 'metric-pill success' : 'metric-pill';
+    cachePill.textContent = `Cache: ${isHit ? 'HIT' : 'MISS'}`;
 
-    // Timing Pill
+    protocolPill.textContent = `Proto: ${data.protocol || 'h2'}`;
+    cookiesUsedPill.textContent = `Cookies: ${meta.cookies_used || 0}`;
     timePill.className = 'metric-pill info';
     timePill.textContent = `Latency: ${elapsed} ms`;
 
-    // Format JSON View (syntax highlighted)
-    const displayData = { ...data };
-    if (typeof displayData.body === 'string') {
-      const trimmed = displayData.body.trim();
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        try {
-          displayData.body = JSON.parse(displayData.body);
-        } catch (e) {
-          if (displayData.body.length > 500) {
-            displayData.body = displayData.body.substring(0, 500) + `\n... [Truncated ${displayData.body.length} characters total]`;
-          }
-        }
-      } else if (displayData.body.length > 500) {
-        displayData.body = displayData.body.substring(0, 500) + `\n... [Truncated ${displayData.body.length} characters total]`;
+    // JSON View (with truncation safeguard for huge bodies)
+    const jsonToDisplay = { ...data };
+    if (typeof jsonToDisplay.body === 'string' && jsonToDisplay.body.length > 500) {
+      const trimmed = jsonToDisplay.body.trim();
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        jsonToDisplay.body = jsonToDisplay.body.substring(0, 500) + `\n... [Truncated ${jsonToDisplay.body.length} chars total — see HTML tab]`;
       }
     }
-    jsonOutput.innerHTML = syntaxHighlight(displayData);
+    jsonOutput.innerHTML = syntaxHighlight(jsonToDisplay);
 
-    // Format HTML / Body Preview View (syntax highlighted)
-    if (data.body) {
-      const trimmed = data.body.trim();
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        try {
-          const parsed = JSON.parse(data.body);
-          htmlOutput.innerHTML = syntaxHighlight(parsed);
-        } catch (e) {
-          htmlOutput.innerHTML = highlightHtml(data.body);
-        }
+    // HTML Preview View
+    updateHtmlPreview(data.body || '');
+
+    // Extracted Tab
+    if (data.extracted !== null && data.extracted !== undefined) {
+      const items = Array.isArray(data.extracted) ? data.extracted : [data.extracted];
+      if (extractedCount) extractedCount.textContent = items.length;
+      if (items.length > 0) {
+        let extHtml = '<div style="display:flex;flex-direction:column;gap:8px;">';
+        items.forEach((item, idx) => {
+          extHtml += `<div class="extracted-item"><span style="color:var(--text-muted);margin-right:8px;">#${idx + 1}</span>${String(item).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+        });
+        extHtml += '</div>';
+        extractedList.innerHTML = extHtml;
       } else {
-        htmlOutput.innerHTML = highlightHtml(data.body);
+        extractedList.innerHTML = '<div class="empty-tab-msg">No matches found for selector in HTML.</div>';
       }
     } else {
-      htmlOutput.innerHTML = '<span style="color:var(--text-muted)">&lt;!-- Empty body response --&gt;</span>';
+      if (extractedCount) extractedCount.textContent = '0';
+      extractedList.innerHTML = '<div class="empty-tab-msg">No extraction selector specified in request.</div>';
     }
 
-    // Format Cookies Tab
+    // Cookies Tab
     const cookies = data.cookies || {};
-    const cookieKeys = Object.keys(cookies);
-    if (cookieCount) cookieCount.textContent = cookieKeys.length;
-
-    if (cookieKeys.length > 0) {
-      let html = '<div style="display:flex;flex-direction:column;gap:12px;">';
-      for (const k of cookieKeys) {
-        html += '<div style="background:#202024;border:1px solid #2e2e34;border-radius:8px;padding:12px 16px;">' +
-                '<div style="color:#38bdf8;font-weight:700;font-size:0.86rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
-                '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;"></span>' +
-                k +
-                '</div>' +
-                '<div style="font-family:var(--font-mono);font-size:0.82rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.35);padding:8px 12px;border-radius:6px;line-height:1.6;user-select:all;border:1px solid rgba(255,255,255,0.05);">' +
-                cookies[k] +
-                '</div>' +
-                '</div>';
-      }
-      html += '</div>';
-      browserStateList.innerHTML = html;
+    const cKeys = Object.keys(cookies);
+    if (cookieCount) cookieCount.textContent = cKeys.length;
+    if (cKeys.length > 0) {
+      let cHtml = '<div style="display:flex;flex-direction:column;gap:12px;">';
+      cKeys.forEach(k => {
+        const isClearance = k.toLowerCase().includes('cf_clearance');
+        cHtml += `
+          <div style="background:#202024;border:1px solid ${isClearance ? 'rgba(234,88,12,0.4)' : '#2e2e34'};border-radius:8px;padding:12px 16px;">
+            <div style="color:${isClearance ? '#fb923c' : '#38bdf8'};font-weight:700;font-size:0.86rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${isClearance ? '#fb923c' : '#38bdf8'};"></span>
+              ${k}
+              ${isClearance ? '<span style="font-size:0.7rem;padding:2px 6px;border-radius:4px;background:rgba(234,88,12,0.15);color:#fb923c;">Cloudflare Clearance</span>' : ''}
+            </div>
+            <div style="font-family:var(--font-mono);font-size:0.82rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.35);padding:8px 12px;border-radius:6px;line-height:1.6;user-select:all;border:1px solid rgba(255,255,255,0.05);">
+              ${cookies[k]}
+            </div>
+          </div>
+        `;
+      });
+      cHtml += '</div>';
+      browserStateList.innerHTML = cHtml;
     } else {
-      browserStateList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No cookies present in response.</div>';
+      browserStateList.innerHTML = '<div class="empty-tab-msg">No cookies harvested in this response.</div>';
     }
 
-    // Format Headers Tab
+    // Headers Tab
     const headers = data.headers || {};
-    const headerKeys = Object.keys(headers);
-    if (headerKeys.length > 0) {
-      let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
-      for (const k of headerKeys) {
-        html += '<div style="background:#202024;border:1px solid #2e2e34;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:4px;">' +
-                '<div style="color:#a78bfa;font-weight:700;font-size:0.84rem;">' + k + '</div>' +
-                '<div style="font-family:var(--font-mono);font-size:0.82rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.25);padding:6px 10px;border-radius:4px;">' +
-                headers[k] +
-                '</div>' +
-                '</div>';
-      }
-      html += '</div>';
-      headersList.innerHTML = html;
+    const hKeys = Object.keys(headers);
+    if (hKeys.length > 0) {
+      let hHtml = '<div style="display:flex;flex-direction:column;gap:8px;">';
+      hKeys.forEach(k => {
+        hHtml += `
+          <div style="background:#202024;border:1px solid #2e2e34;border-radius:6px;padding:8px 12px;display:flex;flex-direction:column;gap:3px;">
+            <div style="color:#a78bfa;font-weight:700;font-size:0.82rem;">${k}</div>
+            <div style="font-family:var(--font-mono);font-size:0.8rem;color:#e2e8f0;word-break:break-all;">${headers[k]}</div>
+          </div>
+        `;
+      });
+      hHtml += '</div>';
+      headersList.innerHTML = hHtml;
     } else {
-      headersList.innerHTML = '<div style="color:#71717a;padding:20px 0;font-family:var(--font-sans);font-size:0.9rem;" class="empty-tab-msg">No headers available.</div>';
+      headersList.innerHTML = '<div class="empty-tab-msg">No headers available.</div>';
     }
 
-    // Format Execution Logs Tab
+    // Pipeline Logs Tab
     const logs = data.logs || [];
     if (logsCount) logsCount.textContent = logs.length;
     if (logsList) {
       if (logs.length > 0) {
         let logHtml = '';
-        for (const line of logs) {
+        logs.forEach(line => {
           let colored = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           colored = colored.replace(/(\[INIT\]|\[HTTP\]|\[RETRY\]|\[PROXY\]|\[IDENTITY\])/g, '<span style="color:#38bdf8;font-weight:700">$1</span>');
           colored = colored.replace(/(\[CACHE\]|\[EXTRACT\])/g, '<span style="color:#10b981;font-weight:700">$1</span>');
@@ -371,13 +700,46 @@ fetchForm.addEventListener('submit', async (e) => {
           colored = colored.replace(/(\[HTTP-FAIL\]|\[RETRY-FAIL\]|\[FAIL\]|\[ERROR\])/g, '<span style="color:#f43f5e;font-weight:700">$1</span>');
           colored = colored.replace(/(\[BROWSER\]|\[SOLVER\])/g, '<span style="color:#c084fc;font-weight:700">$1</span>');
           logHtml += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);">${colored}</div>`;
-        }
+        });
         logsList.innerHTML = logHtml;
       } else {
         logsList.innerHTML = '<span style="color:#71717a">No logs generated for this request.</span>';
       }
     }
 
+    // Turnstile Tab
+    if (data.turnstile_token) {
+      if (tabBtnTurnstile) tabBtnTurnstile.style.display = 'flex';
+      let tsHtml = `
+        <div style="background:#202024;border:1px solid rgba(234,88,12,0.4);border-radius:8px;padding:16px;">
+          <div style="color:#fb923c;font-weight:700;font-size:0.95rem;margin-bottom:8px;">Turnstile Clearance Token</div>
+          <div style="font-family:var(--font-mono);font-size:0.84rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.4);padding:10px 14px;border-radius:6px;user-select:all;">
+            ${data.turnstile_token}
+          </div>
+          <div style="margin-top:12px;display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);">
+            <div>Sitekey: <code style="color:#e4e4e7;">${data.turnstile_sitekey || 'auto'}</code></div>
+            <div>Solved At: <code style="color:#e4e4e7;">${data.turnstile_solved_at ? new Date(data.turnstile_solved_at * 1000).toLocaleTimeString() : 'N/A'}</code></div>
+          </div>
+        </div>
+      `;
+      if (data.token_submissions && data.token_submissions.length > 0) {
+        tsHtml += '<div style="margin-top:16px;font-weight:700;color:#e4e4e7;font-size:0.88rem;">Captured Postback Submissions:</div>';
+        data.token_submissions.forEach(sub => {
+          tsHtml += `
+            <div style="margin-top:8px;background:#202024;border:1px solid #2e2e34;border-radius:6px;padding:10px 14px;font-size:0.82rem;">
+              <div style="color:#38bdf8;font-weight:600;">${sub.method || 'POST'} ${sub.url} (${sub.response_status})</div>
+              <pre style="margin-top:6px;color:#a1a1aa;font-size:0.78rem;"><code>${sub.response_body || ''}</code></pre>
+            </div>
+          `;
+        });
+      }
+      if (turnstileContent) turnstileContent.innerHTML = tsHtml;
+    } else {
+      if (tabBtnTurnstile) tabBtnTurnstile.style.display = 'none';
+    }
+
+    // Refresh Live Cache Explorer entries
+    loadCacheExplorer();
     checkHealth();
   } catch (err) {
     const elapsed = Math.round(performance.now() - t0);
@@ -392,16 +754,290 @@ fetchForm.addEventListener('submit', async (e) => {
   }
 });
 
-// Copy to clipboard helper
-function copyCode(btn) {
-  const pre = btn.closest('.code-block-wrapper').querySelector('pre');
-  navigator.clipboard.writeText(pre.innerText).then(() => {
-    const original = btn.innerHTML;
-    btn.innerHTML = '<span>Copied!</span>';
-    btn.style.color = 'var(--accent-green)';
-    setTimeout(() => {
-      btn.innerHTML = original;
-      btn.style.color = '';
-    }, 2000);
+// ==========================================================================
+// Domain Cache Explorer Logic
+// ==========================================================================
+
+const cacheGrid = document.getElementById('cacheGrid');
+const cacheSearchInput = document.getElementById('cacheSearchInput');
+const btnRefreshCache = document.getElementById('btnRefreshCache');
+const refreshCacheIcon = document.getElementById('refreshCacheIcon');
+const statCachedDomains = document.getElementById('statCachedDomains');
+const statActiveTabs = document.getElementById('statActiveTabs');
+const statTotalCookies = document.getElementById('statTotalCookies');
+
+function formatTtl(seconds) {
+  if (seconds <= 0) return 'Expired';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+async function loadCacheExplorer() {
+  const apiKey = (globalApiKeyInput ? globalApiKeyInput.value.trim() : '') || getStoredApiKey();
+
+  if (refreshCacheIcon) refreshCacheIcon.style.animation = 'spin 1s linear infinite';
+
+  try {
+    // 1. Health Status
+    const hRes = await fetch('/health');
+    const hData = await hRes.json();
+    if (hData.status === 'ok') {
+      const pool = hData.browser_pool || {};
+      if (statActiveTabs) {
+        statActiveTabs.textContent = `${pool.active_tabs || 0} / ${pool.max_browsers || 1}`;
+      }
+    }
+
+    // 2. Cookies List
+    if (!apiKey) {
+      if (statCachedDomains) statCachedDomains.textContent = '0';
+      if (statTotalCookies) statTotalCookies.textContent = '0';
+      if (cacheGrid) {
+        cacheGrid.innerHTML = `
+          <div class="cache-loading-msg">
+            <div class="cache-empty-icon" style="color:var(--accent-orange);">
+              <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">API Key Required to Inspect Domain Cache</div>
+            <p style="font-size:0.84rem;color:var(--text-secondary);max-width:440px;margin:0 auto 14px;">Enter your secret X-API-Key in the Authentication Vault above to inspect active Cloudflare clearance jars.</p>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    const cRes = await fetch('/cookies', {
+      headers: { 'X-API-Key': apiKey }
+    });
+
+    if (cRes.status === 401) {
+      if (cacheGrid) {
+        cacheGrid.innerHTML = `
+          <div class="cache-loading-msg">
+            <div style="color:var(--accent-rose);font-weight:700;margin-bottom:6px;">401 Unauthorized</div>
+            <p style="font-size:0.84rem;color:var(--text-secondary);">The provided API key is invalid. Please verify your X-API-Key.</p>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    const domains = await cRes.json();
+    cachedDomainsData = domains;
+    const domainKeys = Object.keys(domains);
+
+    // Update Stats
+    if (statCachedDomains) statCachedDomains.textContent = domainKeys.length;
+    let totalCookies = 0;
+    domainKeys.forEach(k => {
+      totalCookies += domains[k].cookie_count || Object.keys(domains[k].cookies || {}).length || 0;
+    });
+    if (statTotalCookies) statTotalCookies.textContent = totalCookies;
+
+    renderDomainCards();
+  } catch (err) {
+    if (cacheGrid) {
+      cacheGrid.innerHTML = `<div class="cache-loading-msg"><p style="color:#ef4444;">Error connecting to cache service: ${err.message}</p></div>`;
+    }
+  } finally {
+    if (refreshCacheIcon) refreshCacheIcon.style.animation = '';
+  }
+}
+
+function renderDomainCards() {
+  if (!cacheGrid) return;
+  const filter = (cacheSearchInput ? cacheSearchInput.value.trim().toLowerCase() : '');
+  const allKeys = Object.keys(cachedDomainsData);
+  const filteredKeys = allKeys.filter(k => k.toLowerCase().includes(filter));
+
+  if (allKeys.length === 0) {
+    cacheGrid.innerHTML = `
+      <div class="cache-loading-msg">
+        <div class="cache-empty-icon">
+          <svg class="svg-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">No Cached Domain Sessions</div>
+        <p style="font-size:0.84rem;color:var(--text-secondary);max-width:440px;margin:0 auto;">When you make a request to a Cloudflare-protected site, solved <code>cf_clearance</code> tokens are saved here for subsequent sub-second visits.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (filteredKeys.length === 0) {
+    cacheGrid.innerHTML = `
+      <div class="cache-loading-msg">
+        <p>No cached domains match your filter "<strong>${filter}</strong>".</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  filteredKeys.forEach(domainKey => {
+    const entry = cachedDomainsData[domainKey];
+    const cookies = entry.cookies || {};
+    const cookieNames = Object.keys(cookies);
+    const ttl = entry.ttl_remaining !== undefined ? entry.ttl_remaining : 0;
+    const ua = entry.user_agent || 'Preset User-Agent';
+
+    // Parse Identity and Host
+    let identity = '';
+    let host = domainKey;
+    if (domainKey.includes('@')) {
+      const parts = domainKey.split('@');
+      identity = parts[0];
+      host = parts[1];
+    }
+
+    html += `
+      <div class="domain-card" id="card-${domainKey.replace(/[^a-zA-Z0-9_-]/g, '_')}">
+        <div class="domain-card-header">
+          <div class="domain-title-wrap">
+            <div class="domain-host">
+              <span>${host}</span>
+              ${identity ? `<span class="domain-identity-badge">${identity}</span>` : ''}
+            </div>
+            <span style="font-size:0.75rem;color:var(--text-muted);">${cookieNames.length} session cookie${cookieNames.length === 1 ? '' : 's'}</span>
+          </div>
+          <div class="domain-ttl-pill" data-ttl="${ttl}" id="ttl-${domainKey.replace(/[^a-zA-Z0-9_-]/g, '_')}">
+            ${formatTtl(ttl)}
+          </div>
+        </div>
+
+        <div class="domain-body">
+          <div class="domain-ua-row">
+            <span class="domain-ua-label">User-Agent Profile</span>
+            <div class="domain-ua-text" title="${ua.replace(/"/g, '&quot;')}">${ua}</div>
+          </div>
+
+          <div class="domain-cookies-wrap">
+            <span class="domain-ua-label">Stored Cookies</span>
+            <div class="domain-cookies-chips">
+              ${cookieNames.map(name => {
+                const isClearance = name.toLowerCase().includes('cf_clearance');
+                return `<span class="domain-cookie-chip ${isClearance ? 'highlight' : ''}">${name}</span>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="domain-card-footer">
+          <span style="font-size:0.75rem;color:var(--text-muted);">LRU Stored</span>
+          <button type="button" class="btn-purge-domain" data-domain="${domainKey}">
+            <svg class="svg-icon" style="width:13px;height:13px;" viewBox="0 0 24 24">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            <span>Purge Domain</span>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  cacheGrid.innerHTML = html;
+
+  // Wire Purge Buttons
+  cacheGrid.querySelectorAll('.btn-purge-domain').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const domain = btn.getAttribute('data-domain');
+      const apiKey = (globalApiKeyInput ? globalApiKeyInput.value.trim() : '') || getStoredApiKey();
+      if (!domain || !apiKey) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>Purging...</span>';
+
+      try {
+        const res = await fetch(`/cookies/${encodeURIComponent(domain)}`, {
+          method: 'DELETE',
+          headers: { 'X-API-Key': apiKey }
+        });
+        if (res.ok) {
+          delete cachedDomainsData[domain];
+          renderDomainCards();
+          checkHealth();
+        } else {
+          alert(`Failed to purge domain cache: HTTP ${res.status}`);
+          btn.disabled = false;
+          btn.innerHTML = '<span>Purge Domain</span>';
+        }
+      } catch (err) {
+        alert('Network error purging domain: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<span>Purge Domain</span>';
+      }
+    });
   });
 }
+
+// Live TTL Countdown Timer (Decrements every second)
+if (ttlIntervalTimer) clearInterval(ttlIntervalTimer);
+ttlIntervalTimer = setInterval(() => {
+  document.querySelectorAll('.domain-ttl-pill[data-ttl]').forEach(el => {
+    let cur = parseInt(el.getAttribute('data-ttl'), 10);
+    if (!isNaN(cur) && cur > 0) {
+      cur -= 1;
+      el.setAttribute('data-ttl', cur);
+      el.textContent = formatTtl(cur);
+      if (cur <= 0) {
+        el.style.background = 'rgba(239,68,68,0.1)';
+        el.style.borderColor = 'rgba(239,68,68,0.25)';
+        el.style.color = '#ef4444';
+      }
+    }
+  });
+}, 1000);
+
+if (cacheSearchInput) {
+  cacheSearchInput.addEventListener('input', () => {
+    renderDomainCards();
+  });
+}
+
+if (btnRefreshCache) {
+  btnRefreshCache.addEventListener('click', () => {
+    loadCacheExplorer();
+  });
+}
+
+// ==========================================================================
+// Health & Live Connection Check
+// ==========================================================================
+
+async function checkHealth() {
+  const statusText = document.getElementById('statusText');
+  const liveStatusBadge = document.getElementById('liveStatusBadge');
+  try {
+    const res = await fetch('/health');
+    const data = await res.json();
+    if (data.status === 'ok') {
+      if (statusText) statusText.textContent = `Online (${data.domains_cached} cached)`;
+      if (liveStatusBadge) liveStatusBadge.style.color = 'var(--accent-green)';
+    }
+  } catch (err) {
+    if (statusText) statusText.textContent = 'Offline';
+    if (liveStatusBadge) liveStatusBadge.style.color = '#ef4444';
+  }
+}
+
+// Initial Invocations
+checkHealth();
+loadCacheExplorer();
+setInterval(checkHealth, 15000);
+
+// Auto-navigate to section based on URL hash or path
+window.addEventListener('DOMContentLoaded', () => {
+  const hash = window.location.hash;
+  const path = window.location.pathname;
+  if (hash === '#cache' || path === '/cache') {
+    const cacheSec = document.getElementById('cache');
+    if (cacheSec) cacheSec.scrollIntoView({ behavior: 'smooth' });
+  } else if (hash === '#playground' || path === '/playground') {
+    const pgSec = document.getElementById('playground');
+    if (pgSec) pgSec.scrollIntoView({ behavior: 'smooth' });
+  }
+});
