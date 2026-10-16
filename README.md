@@ -8,7 +8,7 @@ Live: https://your-domain.example
 
 1. **HTTP first.** `httpcloak` sends the request with a browser TLS fingerprint. Most requests end here.
 2. **Browser on challenge.** `cloakbrowser` opens the page, clicks the Turnstile checkbox and collects `cf_clearance`.
-3. **Replay.** Cookies are cached per domain together with the User-Agent, proxy and TLS preset that earned them, so later requests go back to step 1.
+3. **Replay.** Cookies are cached per host and per egress identity (direct or a specific proxy) together with the User-Agent and TLS preset that earned them, so later requests go back to step 1.
 
 Concurrent requests for one domain share a single browser solve. Browser tabs are capped by `MAX_TABS`.
 
@@ -43,7 +43,8 @@ Docker: `docker compose up -d --build`. Interactive docs are at `/docs`.
 | `click_selector` | Click a selector after challenge resolution to trigger in-page redirects or submissions |
 | `cf_wait` | Seconds the solver may spend (default 25.0, exits immediately once resolved) |
 | `session_id` | Isolated session namespace to prevent cookie collisions between concurrent scraping flows |
-| `proxy`, `preset`, `user_agent` | Network identity |
+| `proxy` | Egress proxy (`http://`, `https://`, `socks5://`, `socks5h://`, credentials allowed). Omit for the `DEFAULT_PROXY` rule, `"direct"` to bypass it. See [Proxies](#proxies) |
+| `preset`, `user_agent` | Network identity |
 | `cookie_ttl`, `cookie_allowlist`, `inject_cookies` | Cookie cache control |
 | `capture_token` | Return the Turnstile token |
 | `token_field_names` | Extra field names to read the token from |
@@ -72,6 +73,22 @@ The response carries `turnstile_token`, `turnstile_sitekey` and `turnstile_solve
 
 Many sites submit the token themselves the moment it is issued and then remove the widget. For those, `token_submissions` holds the request the page sent and the server's answer, which is usually the useful part.
 
+### Proxies
+
+Use residential or ISP proxies for Cloudflare-protected sites: datacenter and VPN ranges (e.g. M247) are challenged on reputation alone.
+
+- **One browser per egress identity.** CloakBrowser applies proxy, timezone, locale and WebRTC IP at launch, for the whole process. Each proxy therefore gets its own Chromium process, launched with timezone/locale derived from the proxy exit IP (GeoIP) and WebRTC pinned to that IP, so the fingerprint matches the IP. Processes are capped by `MAX_BROWSERS` (your license seats): when full, the least recently used idle process is closed first.
+- **SOCKS5 with credentials works** (passed to Chromium's own proxy stack, which Playwright's per-context proxy cannot do).
+- **Cookies never cross identities.** `cf_clearance` is bound to the IP that earned it, so the cookie cache is namespaced per proxy.
+- **Fail closed.** An invalid proxy is rejected with 422, and a dead proxy returns 502; requests never silently fall back to a direct connection.
+- **Credentials stay secret.** Proxy passwords are masked in logs and error messages.
+- **Server-side routing.** Set `DEFAULT_PROXY` (and optionally `DEFAULT_PROXY_DOMAINS`) so clients don't need the credentials. A request can still pass its own `proxy`, or `"direct"` to skip the default.
+
+```bash
+DEFAULT_PROXY=http://user:pass@residential.example:8000
+DEFAULT_PROXY_DOMAINS=target-site.site,example.com
+```
+
 Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{domain}`. Health check: `GET /health`.
 
 ## Configuration
@@ -80,11 +97,15 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | --- | --- | --- |
 | `API_KEY` | | Required for `/fetch` and `/cookies` |
 | `PORT` | `8000` | |
-| `MAX_TABS` | `5` | Concurrent browser tabs inside the shared engine |
+| `MAX_TABS` | `5` | Concurrent browser tabs across all browser processes |
+| `MAX_BROWSERS` | `1` | Browser processes alive at once, one per egress identity. Keep at or below your CloakBrowser license seats |
+| `BROWSER_GEOIP` | `true` | Match timezone, locale and WebRTC IP to the egress IP (GeoLite2 DB is baked into the image) |
+| `DEFAULT_PROXY` | | Proxy for requests that send no `proxy` |
+| `DEFAULT_PROXY_DOMAINS` | | Comma-separated domains (subdomains included) routed through `DEFAULT_PROXY`; empty = all |
 | `BROWSER_HEADLESS` | `false` | Default false: runs headfully inside Xvfb (:99) with Openbox for human-like screen geometry |
 | `CLOAKBROWSER_LICENSE_KEY` | | Optional: unlocks latest Chromium build (v154+). Get a free key at [cloakbrowser.dev/free](https://cloakbrowser.dev/free). Without a key, falls back to v146. |
 | `DEFAULT_COOKIE_TTL` | `86400` | Seconds |
-| `MAX_CACHED_DOMAINS` | `10` | |
+| `MAX_CACHED_DOMAINS` | `64` | |
 
 ### CloakBrowser Engine & License
 

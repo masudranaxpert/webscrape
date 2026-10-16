@@ -10,7 +10,7 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 
 from app.core.config import API_KEY
 
-PLAYGROUND_DAILY_LIMIT = 50
+PLAYGROUND_DAILY_LIMIT = 10
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 http_bearer = HTTPBearer(auto_error=False)
@@ -18,7 +18,7 @@ http_bearer = HTTPBearer(auto_error=False)
 
 class PlaygroundQuotaManager:
     """
-    In-memory daily quota tracker for the web playground demo (50 req/day limit).
+    In-memory daily quota tracker for the web playground demo (10 req/day limit).
     """
 
     def __init__(self, limit: int = PLAYGROUND_DAILY_LIMIT) -> None:

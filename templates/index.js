@@ -69,8 +69,16 @@ document.querySelectorAll('.guide-tab-btn').forEach(btn => {
   });
 });
 
+// In-text links that jump to a specific guide tab (e.g. the Proxies guide)
+document.querySelectorAll('[data-open-guide]').forEach(link => {
+  link.addEventListener('click', () => {
+    const btn = document.querySelector(`.guide-tab-btn[data-guide="${link.getAttribute('data-open-guide')}"]`);
+    if (btn) btn.click();
+  });
+});
+
 // In-memory quota state tracked from server
-let serverQuota = { limit: 50, used: 0, remaining: 50 };
+let serverQuota = { limit: 10, used: 0, remaining: 10 };
 
 function updatePlaygroundQuotaUI(quotaData) {
   if (quotaData) {
@@ -79,9 +87,10 @@ function updatePlaygroundQuotaUI(quotaData) {
   const quotaEl = document.getElementById('dailyQuota');
   if (quotaEl) {
     quotaEl.textContent = `${serverQuota.remaining}/${serverQuota.limit}`;
-    if (serverQuota.remaining <= 5) {
+    const ratio = serverQuota.limit ? serverQuota.remaining / serverQuota.limit : 0;
+    if (ratio <= 0.2) {
       quotaEl.style.color = '#f43f5e';
-    } else if (serverQuota.remaining <= 15) {
+    } else if (ratio <= 0.5) {
       quotaEl.style.color = '#fbbf24';
     } else {
       quotaEl.style.color = '#4ade80';

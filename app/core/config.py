@@ -24,6 +24,15 @@ DEFAULT_SESSION_TTL: int = int(os.getenv("DEFAULT_SESSION_TTL", "600"))
 BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "false").lower() not in ("false", "0", "no")
 VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() in ("true", "1", "yes")
 BROWSER_MAX_LIFETIME_SEC: int = int(os.getenv("BROWSER_MAX_LIFETIME_SEC", "300"))
+# One Chromium process per egress identity (direct / each proxy); bounded by CloakBrowser license seats
+MAX_BROWSERS: int = max(1, int(os.getenv("MAX_BROWSERS", "1")))
+# Derive timezone, locale and WebRTC IP from the egress IP (needs cloakbrowser[geoip])
+BROWSER_GEOIP: bool = os.getenv("BROWSER_GEOIP", "true").lower() in ("true", "1", "yes")
+
+# Optional server-side proxy: applied to requests without an explicit `proxy` (send proxy="direct" to opt out)
+DEFAULT_PROXY: str = os.getenv("DEFAULT_PROXY", "")
+# Comma-separated domains routed through DEFAULT_PROXY (subdomains included); empty = every domain
+DEFAULT_PROXY_DOMAINS: str = os.getenv("DEFAULT_PROXY_DOMAINS", "")
 
 
 # Suppress background auto-update checks from cloakbrowser

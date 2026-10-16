@@ -26,7 +26,7 @@ async def home_docs() -> HTMLResponse:
 
 @web_router.post("/playground/fetch", response_model=FetchResponse)
 async def playground_fetch(req: FetchRequest) -> FetchResponse:
-    """Execute live playground request with strict 50 req/day in-memory server limit."""
+    """Execute live playground request with strict 10 req/day in-memory server limit."""
     quota_manager.check_and_consume()
     return await fetch(req)
 

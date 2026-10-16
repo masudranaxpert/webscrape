@@ -132,12 +132,25 @@ class CookieStore:
         return CookieStore.host_of(url)
 
     @staticmethod
-    def cache_key(host: str, session_id: str | None = None) -> str:
-        """Generate isolated storage key: scopes by session_id when provided."""
-        clean_host = host.strip().lower()
+    def cache_key(host: str, session_id: str | None = None, identity: str | None = None) -> str:
+        """Storage key `[identity@]host[#session_id]`.
+
+        `identity` is the egress proxy id: cf_clearance is bound to the IP that earned it, so cookies earned through
+        one proxy must never be replayed through another (or direct).
+        """
+        key = host.strip().lower()
+        if identity and identity != "direct":
+            key = f"{identity}@{key}"
         if session_id and str(session_id).strip():
-            return f"{clean_host}#{str(session_id).strip()}"
-        return clean_host
+            key = f"{key}#{str(session_id).strip()}"
+        return key
+
+    @classmethod
+    def _root_key(cls, key: str) -> str:
+        """Root-domain (eTLD+1) key within the same egress identity namespace, ignoring any session suffix."""
+        base = key.split("#", 1)[0]
+        identity, sep, host = base.rpartition("@")
+        return f"{identity}{sep}{cls.root_domain_of(host)}"
 
     @staticmethod
     def filter_and_limit(
@@ -214,7 +227,7 @@ class CookieStore:
                 return dict(entry["cookies"])
 
         # Fallback: only for non-session keys! Inherit root domain's cf_clearance (and ONLY cf_clearance)
-        root = self.root_domain_of(key)
+        root = self._root_key(key)
         if root != key and root in self._domain_store:
             root_entry = self._domain_store[root]
             if time.time() <= root_entry["expires_at"]:
@@ -234,7 +247,7 @@ class CookieStore:
         entry = self._domain_store.get(key)
         if entry and time.time() <= entry["expires_at"]:
             return entry.get("user_agent")
-        root = self.root_domain_of(key)
+        root = self._root_key(key)
         if root != key and root in self._domain_store and time.time() <= self._domain_store[root]["expires_at"]:
             return self._domain_store[root].get("user_agent")
         return None
@@ -250,7 +263,7 @@ class CookieStore:
         entry = self._domain_store.get(key)
         if entry and time.time() <= entry["expires_at"]:
             return {k: entry.get(k) for k in ("user_agent", "proxy", "preset")}
-        root = self.root_domain_of(key)
+        root = self._root_key(key)
         if root != key and root in self._domain_store and time.time() <= self._domain_store[root]["expires_at"]:
             return {k: self._domain_store[root].get(k) for k in ("user_agent", "proxy", "preset")}
         return {"user_agent": None, "proxy": None, "preset": None}
@@ -311,7 +324,7 @@ class CookieStore:
         # Atomically update root domain ONLY with cf_clearance (never __cf_bm or session tokens)
         # and keep identity (UA, proxy, preset, expiry) fully synchronized without wiping existing root cookies
         if "cf_clearance" in clean_cookies:
-            root = self.root_domain_of(key)
+            root = self._root_key(key)
             if root != key:
                 if root in self._domain_store:
                     self._domain_store.move_to_end(root)
@@ -350,8 +363,7 @@ class CookieStore:
         else:
             removed = self._domain_store.pop(key, None) is not None
 
-        host_part = key.split("#")[0]
-        root = self.root_domain_of(host_part)
+        root = self._root_key(key)
         if root in self._domain_store and root != key:
             if rejected_clearance:
                 root_cookies = self._domain_store[root].get("cookies", {})

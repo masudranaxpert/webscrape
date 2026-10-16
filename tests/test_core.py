@@ -88,16 +88,15 @@ async def test_browser_pool() -> None:
     assert "origin" in res.body, "Response body does not contain expected payload"
 
     # Test worker recycling trigger
-    first_browser = pool._browser
-    assert first_browser is not None
-    pool._browser_created_at = 0.0  # Force age expiry
-    assert pool._should_recycle() is True
+    worker = pool._workers["direct"]
+    first_browser = worker.browser
+    worker.created_at = 0.0  # Force age expiry
+    assert pool._is_stale(worker) is True
 
     # Next request should recycle and re-spawn a fresh browser
     res2 = await pool.solve_and_fetch("https://httpbin.org/get", cf_wait=10.0)
     assert res2.status_code == 200
-    assert pool._browser is not None
-    assert pool._browser is not first_browser, "Browser was not recycled as expected"
+    assert pool._workers["direct"].browser is not first_browser, "Browser was not recycled as expected"
 
     await pool.stop()
     print("[OK] Browser pool & worker recycling self-checks passed")

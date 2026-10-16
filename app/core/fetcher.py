@@ -12,10 +12,10 @@ from urllib.parse import urljoin, urlparse
 import httpcloak
 
 from app.core.config import DEBUG
+from app.core.proxy import mask_proxy, normalize_proxy, redact
 
 logger = logging.getLogger(__name__)
 
-_VALID_PROXIES = ("http://", "https://", "socks5://", "socks5h://", "masque://")
 _CHALLENGE_SUBSTRINGS = (
     'id="challenge-running"',
     'id="challenge-stage"',
@@ -77,13 +77,6 @@ def has_turnstile_widget(body: str) -> bool:
     return bool(body) and any(m in body for m in _WIDGET_MARKERS)
 
 
-def _sanitize_proxy(proxy: str | None) -> str | None:
-    if not proxy or not isinstance(proxy, str):
-        return None
-    p = proxy.strip()
-    return p if any(p.startswith(prefix) for prefix in _VALID_PROXIES) else None
-
-
 def _sanitize_http_version(http_version: str | None) -> str | None:
     if not http_version or not isinstance(http_version, str):
         return None
@@ -104,7 +97,8 @@ async def httpcloak_fetch(
     _redirect_depth: int = 0,
 ) -> FetcherResult:
     """Execute stealth HTTP request with full browser wire fingerprint."""
-    clean_proxy = _sanitize_proxy(proxy)
+    # Fail closed: an unusable proxy raises instead of silently connecting direct and exposing the server IP
+    clean_proxy = normalize_proxy(proxy)
     clean_version = _sanitize_http_version(http_version)
 
     session_kwargs: dict = {
@@ -142,7 +136,7 @@ async def httpcloak_fetch(
                 method.upper(), url, preset,
                 (ua_in_req[:40] + "...") if ua_in_req else "preset-default",
                 clean_version or "auto",
-                len(cookies or {}), clean_proxy or "none",
+                len(cookies or {}), mask_proxy(clean_proxy),
             )
 
         t0 = time.monotonic()
@@ -176,7 +170,7 @@ async def httpcloak_fetch(
             )
         except Exception as err:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            logger.warning("httpcloak request failed (%s) [%dms]: %s", type(err).__name__, elapsed_ms, err)
+            logger.warning("httpcloak request failed (%s) [%dms]: %s", type(err).__name__, elapsed_ms, redact(str(err)))
             return FetcherResult(
                 status_code=0,
                 headers={},
@@ -186,7 +180,7 @@ async def httpcloak_fetch(
                 protocol=None,
                 cf_wall=True,
                 elapsed_ms=elapsed_ms,
-                error=str(err),
+                error=redact(str(err)),
             )
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)

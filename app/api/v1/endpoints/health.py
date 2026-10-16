@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from app.core.auth import quota_manager
+from app.core.browser import pool
 from app.core.config import DEBUG
 from app.core.cookie_store import store
 
@@ -24,6 +25,7 @@ async def health() -> JSONResponse:
         "status": "ok",
         "debug": DEBUG,
         "domains_cached": len(cached),
+        "browser_pool": pool.stats(),
         "cached_domains": list(cached.keys()),
         "quota": quota_manager.get_status(),
     })

@@ -71,6 +71,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Pre-download cloakbrowser chromium binary into ubuntu user cache
 RUN python3 -c "import cloakbrowser; print(cloakbrowser.ensure_binary())"
 
+# Bake the GeoLite2 database (~70 MB) used to match timezone/locale/WebRTC to the egress IP, so the first proxied
+# launch does not stall on a download; non-fatal because CloakBrowser retries the download at runtime
+RUN python3 -c "from cloakbrowser.geoip import _ensure_geoip_db; print('GeoIP DB:', _ensure_geoip_db())" || \
+    echo "GeoIP DB pre-download failed; will download on first use"
+
 USER root
 # Symlink cloakbrowser binary to standard system paths
 RUN CHROME_PATH=$(/app/venv/bin/python3 -c "import cloakbrowser; print(cloakbrowser.ensure_binary())") && \

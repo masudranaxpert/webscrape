@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="/static/index.css?v=3.1">
+  <link rel="stylesheet" href="/static/index.css?v=3.2">
 </head>
 
 <body>
@@ -120,9 +120,9 @@
         <div style="display:flex;align-items:center;gap:12px;">
           <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#202024;border:1px solid #2e2e34;border-radius:20px;font-size:0.82rem;">
             <span style="color:#fb923c;font-weight:600;">Daily Quota:</span>
-            <span id="dailyQuota" style="font-weight:700;color:#4ade80;">50/50</span>
+            <span id="dailyQuota" style="font-weight:700;color:#4ade80;">10/10</span>
           </div>
-          <span style="font-size: 0.85rem; color: var(--text-muted);">Max 50 req/day</span>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Max 10 req/day</span>
         </div>
       </div>
 
@@ -349,7 +349,10 @@
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">string | null</span></td>
                   <td><span class="param-default">null</span></td>
-                  <td>Proxy URL (e.g. <code>http://proxy:8080</code> or <code>socks5://127.0.0.1:1080</code>).</td>
+                  <td>Egress proxy: <code>http://</code>, <code>https://</code>, <code>socks5://</code> or
+                    <code>socks5h://</code>, credentials allowed (<code>socks5://user:pass@host:port</code>). Omit to use
+                    the server's <code>DEFAULT_PROXY</code> rule, or send <code>"direct"</code> to bypass it. Invalid
+                    values return <code>422</code>. See <a href="#guides" class="guide-link" data-open-guide="guideProxies">Proxy guide</a>.</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">force_browser</span></td>
@@ -576,7 +579,15 @@
               <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
               <polyline points="18 8 22 12 18 16" />
             </svg>
-            Fingerprints, User-Agent & Proxies
+            Fingerprints & User-Agent
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideProxies">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            Proxies & Egress Identity
           </button>
         </div>
 
@@ -650,9 +661,10 @@
           <!-- Cloudflare & Browser Guide -->
           <div class="guide-pane" id="guideCloudflare">
             <p>
-              The system manages a <strong>persistent single Chromium process</strong> started once at application boot.
-              Incoming requests acquire a worker tab through a semaphore pool (configurable via <code>MAX_TABS</code> in
-              <code>.env</code>) and automatically clean up tabs and isolated browser contexts upon completion.
+              The system keeps a <strong>persistent Chromium process per egress identity</strong> (direct, or one per
+              proxy), capped by <code>MAX_BROWSERS</code>. Incoming requests acquire a worker tab through a semaphore pool
+              (<code>MAX_TABS</code>) and clean up their isolated browser context on completion. Idle processes are
+              recycled after <code>BROWSER_MAX_LIFETIME_SEC</code>.
             </p>
             <ul>
               <li><strong><code>force_browser</code></strong>: Set to <code>true</code> to skip the HTTP fast-path and
@@ -684,7 +696,7 @@
           <!-- Networking Guide -->
           <div class="guide-pane" id="guideNetworking">
             <p>
-              Fine-tune the wire-level network behavior, fingerprint profiles, proxy routing, and User-Agent headers.
+              Fine-tune the wire-level network behavior, fingerprint profiles and User-Agent headers.
             </p>
             <ul>
               <li><strong><code>user_agent</code></strong>: Pass a custom User-Agent string to override the preset's
@@ -693,24 +705,161 @@
                 <code>"chrome-latest-windows"</code>, <code>"chrome-latest-linux"</code>,
                 <code>"chrome-latest-macos"</code>, <code>"firefox-latest"</code>, <code>"safari-latest"</code>.
               </li>
-              <li><strong><code>proxy</code></strong>: Route requests through HTTP, HTTPS, or SOCKS5 proxies. Browser
-                tabs run in dedicated, isolated browser contexts to prevent proxy leakage.</li>
+              <li><strong><code>proxy</code></strong>: Route the request through an HTTP, HTTPS or SOCKS5 proxy. Each proxy
+                gets its own browser process with a matching timezone, locale and WebRTC IP. See the
+                <a href="#guides" class="guide-link" data-open-guide="guideProxies">Proxies &amp; Egress Identity</a> tab.</li>
               <li><strong><code>http_version</code></strong>: Force protocol version (<code>"h1"</code>,
                 <code>"h2"</code>, <code>"h3"</code>) or leave as <code>null</code> for auto-negotiation via ALPN.</li>
             </ul>
 
             <div class="code-block-wrapper">
               <div class="code-block-header">
-                <span>Example: Custom User-Agent and SOCKS5 Proxy</span>
+                <span>Example: Custom User-Agent, preset and protocol</span>
                 <button class="btn-copy" onclick="copyCode(this)">Copy</button>
               </div>
               <pre><code>{
   <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/api/data"</span>,
   <span class="json-key">"user_agent"</span>: <span class="json-string">"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"</span>,
-  <span class="json-key">"proxy"</span>: <span class="json-string">"socks5://127.0.0.1:1080"</span>,
   <span class="json-key">"preset"</span>: <span class="json-string">"chrome-latest-windows"</span>,
+  <span class="json-key">"http_version"</span>: <span class="json-string">"h2"</span>,
   <span class="json-key">"timeout"</span>: <span class="json-number">45</span>
 }</code></pre>
+            </div>
+          </div>
+
+          <!-- Proxies Guide -->
+          <div class="guide-pane" id="guideProxies">
+            <p>
+              Send any request through a residential, ISP or datacenter proxy. Cloudflare binds <code>cf_clearance</code>
+              to the IP that earned it and checks that the browser's timezone, language and WebRTC address agree with that
+              IP, so the API treats every proxy as a separate <strong>egress identity</strong> end to end.
+            </p>
+
+            <div class="proxy-flow">
+              <div class="flow-step">
+                <h4>Resolve</h4>
+                <p>Request <code>proxy</code> &gt; <code>"direct"</code> opt-out &gt; server <code>DEFAULT_PROXY</code> rule.</p>
+              </div>
+              <div class="flow-step">
+                <h4>Isolate</h4>
+                <p>One Chromium process per proxy. SOCKS5 credentials are handed to Chromium itself.</p>
+              </div>
+              <div class="flow-step">
+                <h4>Match</h4>
+                <p>Timezone and locale come from the exit IP (GeoIP); WebRTC is pinned to that IP.</p>
+              </div>
+              <div class="flow-step">
+                <h4>Cache</h4>
+                <p>Cookies are namespaced per proxy, so a clearance is never replayed from another IP.</p>
+              </div>
+            </div>
+
+            <h3 class="guide-subtitle">Supported formats</h3>
+            <div class="mini-table-wrap">
+              <table class="mini-table">
+                <thead>
+                  <tr><th>Format</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>http://user:pass@host:port</code></td><td>Most residential providers. Works on the HTTP engine and the browser.</td></tr>
+                  <tr><td><code>https://host:port</code></td><td>TLS connection to the proxy itself.</td></tr>
+                  <tr><td><code>socks5://user:pass@host:port</code></td><td>Authenticated SOCKS5, including passwords with <code>@</code> or <code>=</code> (encoded for you).</td></tr>
+                  <tr><td><code>socks5h://host:port</code></td><td>DNS resolved by the proxy (the browser always does this for SOCKS5).</td></tr>
+                  <tr><td><code>"direct"</code></td><td>Skip <code>DEFAULT_PROXY</code> for this request.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3 class="guide-subtitle">Examples</h3>
+            <div class="example-grid">
+              <div class="code-block-wrapper">
+                <div class="code-block-header">
+                  <span>Residential HTTP proxy</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/protected"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-string">"http://user:pass@res.example.net:8000"</span>
+}</code></pre>
+              </div>
+
+              <div class="code-block-wrapper">
+                <div class="code-block-header">
+                  <span>SOCKS5 + isolated session</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/download/42"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-string">"socks5://user:pass@1.2.3.4:1080"</span>,
+  <span class="json-key">"session_id"</span>: <span class="json-string">"task-dl-42"</span>,
+  <span class="json-key">"force_browser"</span>: <span class="json-boolean">true</span>
+}</code></pre>
+              </div>
+
+              <div class="code-block-wrapper">
+                <div class="code-block-header">
+                  <span>.env: server-side routing</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-comment"># Clients never see the credentials</span>
+DEFAULT_PROXY=<span class="hl-string">http://user:pass@res.example:8000</span>
+<span class="hl-comment"># Subdomains included; empty = every domain</span>
+DEFAULT_PROXY_DOMAINS=<span class="hl-string">example.com,example.org</span>
+<span class="hl-comment"># Browser processes alive at once (license seats)</span>
+MAX_BROWSERS=<span class="hl-number">1</span>
+BROWSER_GEOIP=<span class="hl-keyword">true</span></code></pre>
+              </div>
+
+              <div class="code-block-wrapper">
+                <div class="code-block-header">
+                  <span>Bypass DEFAULT_PROXY</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/status"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-string">"direct"</span>
+}</code></pre>
+              </div>
+            </div>
+
+            <h3 class="guide-subtitle">Failure handling</h3>
+            <div class="mini-table-wrap">
+              <table class="mini-table">
+                <thead>
+                  <tr><th>Situation</th><th>Response</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Malformed proxy (no scheme, no port, unsupported scheme)</td><td><code>422</code>, rejected before any network call; never falls back to a direct connection.</td></tr>
+                  <tr><td>Proxy refuses or drops the connection</td><td><code>status_code: 502</code> with a <code>[PROXY-FAIL]</code> log; no browser solve is wasted.</td></tr>
+                  <tr><td>Any log, error or response body</td><td>Credentials are masked as <code>socks5://***@host:port</code>.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="callout callout-warn">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <div>
+                <strong>Use residential or ISP proxies for Cloudflare sites.</strong> Datacenter and VPN ranges are
+                challenged on IP reputation alone, whatever the fingerprint. A site's own per-IP limits (for example
+                "too many downloads") also apply to the proxy IP.
+              </div>
+            </div>
+
+            <div class="callout callout-info">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <div>
+                <strong>License seats.</strong> Each egress identity is a separate CloakBrowser session. With
+                <code>MAX_BROWSERS=1</code>, requests for different proxies take turns: the idle process is closed and the
+                next identity's browser starts (a few seconds). Raise it only up to your plan's concurrent sessions.
+              </div>
             </div>
           </div>
         </div>
@@ -774,6 +923,39 @@ data = response.<span class="hl-fn">json</span>()
     "preset": "chrome-latest-windows"
   }'</span></code></pre>
       </div>
+
+      <!-- Proxy Example -->
+      <div class="code-block-wrapper" style="margin-top: 24px;">
+        <div class="code-block-header">
+          <span>Python: through a residential proxy</span>
+          <button class="btn-copy" onclick="copyCode(this)">
+            <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            Copy
+          </button>
+        </div>
+        <pre><code><span class="hl-keyword">import</span> os, httpx
+
+response = httpx.<span class="hl-fn">post</span>(
+    <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: os.environ[<span class="hl-string">"ANTI_API_KEY"</span>]},
+    json={
+        <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/protected-page"</span>,
+        <span class="hl-comment"># Keep credentials out of source control</span>
+        <span class="json-key">"proxy"</span>: os.environ[<span class="hl-string">"RESIDENTIAL_PROXY"</span>],
+        <span class="json-key">"session_id"</span>: <span class="hl-string">"job-17"</span>,
+    },
+    timeout=<span class="hl-number">120.0</span>,
+)
+
+data = response.<span class="hl-fn">json</span>()
+<span class="hl-keyword">if</span> data[<span class="hl-string">"status_code"</span>] == <span class="hl-number">502</span>:
+    <span class="hl-fn">print</span>(<span class="hl-string">"Proxy down:"</span>, data[<span class="hl-string">"logs"</span>][-<span class="hl-number">1</span>])
+<span class="hl-keyword">else</span>:
+    <span class="hl-fn">print</span>(data[<span class="hl-string">"status_code"</span>], data[<span class="hl-string">"meta"</span>][<span class="hl-string">"via"</span>])</code></pre>
+      </div>
     </section>
   </main>
 
@@ -783,7 +965,7 @@ data = response.<span class="hl-fn">json</span>()
     </div>
   </footer>
 
-  <script src="/static/index.js?v=3.1"></script>
+  <script src="/static/index.js?v=3.2"></script>
 </body>
 
 </html>

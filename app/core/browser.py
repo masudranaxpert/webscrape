@@ -10,15 +10,18 @@ import os
 import re
 import time
 from typing import Any
-from urllib.parse import urlparse
 
 import cloakbrowser as cb
+from cloakbrowser.geoip import resolve_proxy_exit_ip
 
 from app.core.config import (
+    BROWSER_GEOIP,
     BROWSER_HEADLESS,
     BROWSER_MAX_LIFETIME_SEC,
+    MAX_BROWSERS,
     MAX_TABS,
 )
+from app.core.proxy import browser_proxy, is_proxy_error, mask_proxy, proxy_key, redact
 
 logger = logging.getLogger(__name__)
 
@@ -141,27 +144,26 @@ class BrowserResult:
     token_submissions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
-def _parse_proxy(proxy: str | None) -> dict[str, str] | None:
-    """Parse proxy URI into Playwright-compatible proxy dictionary."""
-    if not proxy or not isinstance(proxy, str):
-        return None
-    try:
-        parsed = urlparse(proxy.strip())
-        if not parsed.hostname or not parsed.port:
-            return None
-        cfg = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
-        if parsed.username and parsed.password:
-            cfg["username"] = parsed.username
-            cfg["password"] = parsed.password
-        return cfg
-    except Exception:
-        return None
+@dataclasses.dataclass
+class _Worker:
+    """One Chromium process bound to a single egress identity (direct or one proxy)."""
+
+    key: str
+    proxy: str | None
+    browser: Any
+    created_at: float
+    last_used: float
+    active: int = 0
+    timezone: str | None = None
 
 
 class BrowserPool:
     """
-    Manages concurrent stealth browser contexts and automated Cloudflare challenge solving.
-    Includes automated worker recycling to eliminate stale HTTP disk cache and memory bloat.
+    Keyed pool of stealth browser processes, one per egress identity.
+
+    CloakBrowser applies proxy, timezone, locale and WebRTC IP at launch and process-wide, so a proxied request needs
+    its own process for its fingerprint to match its exit IP. Processes are bounded by MAX_BROWSERS (license seats):
+    when full, the least recently used idle process is closed before launching another identity.
     """
 
     def __init__(
@@ -169,21 +171,24 @@ class BrowserPool:
         max_tabs: int = MAX_TABS,
         headless: bool = BROWSER_HEADLESS,
         max_lifetime_sec: int = BROWSER_MAX_LIFETIME_SEC,
+        max_browsers: int = MAX_BROWSERS,
+        geoip: bool = BROWSER_GEOIP,
     ) -> None:
         self._max_tabs = max_tabs
         self._headless = headless
         self._max_lifetime_sec = max_lifetime_sec
+        self._max_browsers = max_browsers
+        self._geoip = geoip
         self._sem: asyncio.Semaphore | None = None
-        self._launch_lock: asyncio.Lock | None = None
-        self._browser: Any | None = None
-        self._browser_created_at: float = 0.0
-        self._active_contexts: int = 0
+        self._cond: asyncio.Condition | None = None
+        self._workers: dict[str, _Worker] = {}
+        self._waiting: dict[str, int] = {}
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
-        """Pre-warm browser environment and initialize concurrency semaphore."""
+        """Pre-warm browser environment and initialize concurrency primitives."""
         self._sem = asyncio.Semaphore(self._max_tabs)
-        self._launch_lock = asyncio.Lock()
+        self._cond = asyncio.Condition()
         try:
             bin_path = cb.ensure_binary()
             logger.info("Using cloakbrowser binary: %s", bin_path)
@@ -195,19 +200,39 @@ class BrowserPool:
             logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
 
         logger.info(
-            "BrowserPool initialized | max_concurrent=%d | headless=%s | max_lifetime=%ds",
+            "BrowserPool initialized | max_concurrent=%d | max_browsers=%d | headless=%s | geoip=%s | max_lifetime=%ds",
             self._max_tabs,
+            self._max_browsers,
             self._headless,
+            self._geoip,
             self._max_lifetime_sec,
         )
 
-    def _should_recycle(self) -> bool:
-        """Check if active browser worker has exceeded max lifetime TTL and has no active contexts."""
-        if self._browser is None:
-            return False
-        if self._active_contexts > 0:
-            return False
-        return (time.monotonic() - self._browser_created_at) >= self._max_lifetime_sec
+    def stats(self) -> dict[str, int]:
+        """Process counts for diagnostics (no proxy details: /health is unauthenticated)."""
+        return {
+            "browsers": len(self._workers),
+            "max_browsers": self._max_browsers,
+            "active_tabs": sum(w.active for w in self._workers.values()),
+        }
+
+    def _launch_args(self) -> list[str]:
+        args = [
+            FAKE_SHADOW_ARG,
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--no-crashpad",
+            "--disable-crash-reporter",
+            "--window-size=1280,720",
+            "--fingerprint-allow-3p-cookies",
+        ]
+        if not self._geoip:
+            # Without geoip the locale is pinned; with geoip CloakBrowser derives it from the exit IP
+            args.append("--lang=en-US,en")
+        if self._headless:
+            args.append("--ozone-override-screen-size=1920,1080")
+        return args
 
     async def _close_browser_safely(self, browser: Any) -> None:
         """Safely close a browser instance and release process resources."""
@@ -224,7 +249,7 @@ class BrowserPool:
             if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
                 logger.warning(
                     "CloakBrowser license failure (%s); falling back to unauthenticated engine",
-                    err,
+                    redact(str(err)),
                 )
                 fallback_kwargs = dict(launch_kwargs)
                 fallback_kwargs["license_key"] = None
@@ -236,52 +261,118 @@ class BrowserPool:
                         os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
             raise
 
-    async def _get_browser(self, launch_kwargs: dict[str, Any]) -> Any:
-        """Acquire healthy browser instance, cleanly recycling idle aged workers."""
-        if self._launch_lock is None:
-            self._launch_lock = asyncio.Lock()
+    async def _launch_worker(self, key: str, proxy: str | None) -> _Worker:
+        """Launch a browser whose proxy, timezone, locale and WebRTC IP all match one egress identity."""
+        launch_kwargs: dict[str, Any] = {
+            "headless": self._headless,
+            "humanize": True,
+            "human_preset": "careful",
+            "_suppress_maximize": True,
+            "args": self._launch_args(),
+        }
+        if proxy:
+            launch_kwargs["proxy"] = browser_proxy(proxy)
 
-        async with self._launch_lock:
-            # Check if existing browser disconnected or terminated
-            if self._browser is not None:
+        timezone: str | None = None
+        if self._geoip:
+            try:
+                timezone, locale, exit_ip = await asyncio.to_thread(cb.maybe_resolve_geoip, True, launch_kwargs.get("proxy"), None, None, None)
+                launch_kwargs.update(timezone=timezone, locale=locale)
+                if exit_ip:
+                    launch_kwargs["args"].append(f"--fingerprint-webrtc-ip={exit_ip}")
+                logger.info("GeoIP for %s: tz=%s locale=%s", mask_proxy(proxy), timezone, locale)
+            except Exception as err:
+                if proxy and is_proxy_error(str(err)):
+                    raise RuntimeError(f"Proxy {mask_proxy(proxy)} unreachable: {redact(str(err))}") from err
+                logger.warning("GeoIP resolution failed for %s (%s); launching with default timezone/locale", mask_proxy(proxy), redact(str(err)))
+                launch_kwargs["args"].append("--lang=en-US,en")
+                if proxy:
+                    # WebRTC must still report the proxy exit IP, otherwise STUN candidates leak the server IP
+                    exit_ip = await asyncio.to_thread(resolve_proxy_exit_ip, launch_kwargs["proxy"])
+                    if not exit_ip:
+                        raise RuntimeError(f"Proxy {mask_proxy(proxy)} unreachable: could not resolve its exit IP") from err
+                    launch_kwargs["args"].append(f"--fingerprint-webrtc-ip={exit_ip}")
+
+        browser = await self._launch_browser(launch_kwargs)
+        now = time.monotonic()
+        logger.info("Launched browser worker for %s (%d/%d)", mask_proxy(proxy), len(self._workers) + 1, self._max_browsers)
+        return _Worker(key=key, proxy=proxy, browser=browser, created_at=now, last_used=now, timezone=timezone)
+
+    def _is_stale(self, worker: _Worker) -> bool:
+        """Disconnected, or past its lifetime with no open tabs (recycling drops HTTP cache and memory bloat)."""
+        try:
+            if not worker.browser.is_connected():
+                return True
+        except Exception:
+            return True
+        return worker.active == 0 and (time.monotonic() - worker.created_at) >= self._max_lifetime_sec
+
+    async def _acquire(self, proxy: str | None) -> _Worker:
+        """Reserve a tab on the browser for this egress identity, launching or evicting processes as needed."""
+        if self._cond is None:
+            self._cond = asyncio.Condition()
+        key = proxy_key(proxy)
+        async with self._cond:
+            while True:
+                worker = self._workers.get(key)
+                if worker is not None and self._is_stale(worker):
+                    logger.info("Recycling browser worker for %s (age=%.1fs)", mask_proxy(proxy), time.monotonic() - worker.created_at)
+                    del self._workers[key]
+                    await self._close_browser_safely(worker.browser)
+                    worker = None
+
+                full = len(self._workers) >= self._max_browsers
+                if worker is not None:
+                    # Drain instead of joining while another identity waits for a slot, so it cannot starve
+                    if not (full and self._others_waiting(key)):
+                        worker.active += 1
+                        return worker
+                elif not full:
+                    worker = await self._launch_worker(key, proxy)
+                    self._workers[key] = worker
+                    worker.active += 1
+                    return worker
+                else:
+                    idle = [w for w in self._workers.values() if w.active == 0]
+                    if idle:
+                        victim = min(idle, key=lambda w: w.last_used)
+                        logger.info("Browser slots full: closing idle worker for %s to serve %s", mask_proxy(victim.proxy), mask_proxy(proxy))
+                        del self._workers[victim.key]
+                        await self._close_browser_safely(victim.browser)
+                        continue
+
+                # Every process is busy (or draining for another identity): wait for a tab to finish
+                waiting = worker is None
+                if waiting:
+                    self._waiting[key] = self._waiting.get(key, 0) + 1
                 try:
-                    if not self._browser.is_connected():
-                        logger.warning("Browser disconnected or terminated; cleaning up for restart")
-                        old_b = self._browser
-                        self._browser = None
-                        await self._close_browser_safely(old_b)
-                except Exception:
-                    self._browser = None
+                    await self._cond.wait()
+                finally:
+                    if waiting:
+                        self._waiting[key] -= 1
+                        if not self._waiting[key]:
+                            del self._waiting[key]
 
-            if self._should_recycle():
-                age = time.monotonic() - self._browser_created_at
-                logger.info(
-                    "Recycling browser worker (age=%.1fs, active_contexts=%d) before serving new request",
-                    age,
-                    self._active_contexts,
-                )
-                old_browser = self._browser
-                self._browser = None
-                if old_browser:
-                    await self._close_browser_safely(old_browser)
+    def _others_waiting(self, key: str) -> bool:
+        return any(k != key and k not in self._workers for k in self._waiting)
 
-            if self._browser is None:
-                self._browser = await self._launch_browser(launch_kwargs)
-                self._browser_created_at = time.monotonic()
-
-            self._active_contexts += 1
-            return self._browser
+    async def _release(self, worker: _Worker) -> None:
+        if self._cond is None:
+            self._cond = asyncio.Condition()
+        async with self._cond:
+            worker.active = max(0, worker.active - 1)
+            worker.last_used = time.monotonic()
+            self._cond.notify_all()
 
     async def stop(self) -> None:
-        """Clean up all active browser resources."""
-        if self._launch_lock is None:
-            self._launch_lock = asyncio.Lock()
-        async with self._launch_lock:
-            if self._browser:
-                with contextlib.suppress(Exception):
-                    await self._browser.close()
-                self._browser = None
-            self._active_contexts = 0
+        """Clean up all browser processes."""
+        if self._cond is None:
+            self._cond = asyncio.Condition()
+        async with self._cond:
+            for worker in list(self._workers.values()):
+                await self._close_browser_safely(worker.browser)
+            self._workers.clear()
+            self._cond.notify_all()
         logger.info("BrowserPool stopped")
 
     async def solve_and_fetch(
@@ -302,8 +393,6 @@ class BrowserPool:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens."""
         if self._sem is None:
             self._sem = asyncio.Semaphore(self._max_tabs)
-        if self._launch_lock is None:
-            self._launch_lock = asyncio.Lock()
 
         async with self._sem:
             return await self._run_context(
@@ -428,45 +517,16 @@ class BrowserPool:
         body: str | None = None,
     ) -> BrowserResult:
         t0 = time.monotonic()
-        proxy_cfg = _parse_proxy(proxy)
         # Map API load-state names onto Playwright wait_until values
         load_state = {"complete": "load", "interactive": "domcontentloaded"}.get(
             (page_load_state or "").lower(), "domcontentloaded"
         )
 
-        browser_args = [
-            FAKE_SHADOW_ARG,
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-blink-features=AutomationControlled",
-            "--lang=en-US,en",
-            "--no-crashpad",
-            "--disable-crash-reporter",
-            "--window-size=1280,720",
-            "--fingerprint-allow-3p-cookies",
-        ]
-        if self._headless:
-            browser_args.append("--ozone-override-screen-size=1920,1080")
-
-        # ponytail: BrowserPool shares one Chromium process across tabs to prevent CloakBrowser license limit (code 76).
-        # Per-context proxy is configured in new_context(proxy=proxy_cfg). Per-request geoip/timezone requires dedicated
-        # process instances (cb.launch_context_async); upgrade to multi-process pool when per-tab timezone isolation is needed.
-        launch_kwargs: dict[str, Any] = {
-            "headless": self._headless,
-            "humanize": True,
-            "human_preset": "careful",
-            "_suppress_maximize": True,
-            "args": browser_args,
-        }
-        if proxy_cfg:
-            launch_kwargs["geoip"] = True
-
         context = None
-        browser_acquired = False
+        worker: _Worker | None = None
         selector = (wait_for_selector or "").strip() or None
         notes: list[str] = []
         harvested: dict[str, str] = {}
-        body_text: str = ""
         final_url: str = url
         status_code = 200
         status: int = 200
@@ -479,17 +539,14 @@ class BrowserPool:
         attempted_clearance_reload: bool = False
 
         try:
-            browser = await self._get_browser(launch_kwargs)
-            browser_acquired = True
+            # Proxy, timezone, locale and WebRTC IP live on the process: pick the one bound to this egress identity
+            worker = await self._acquire(proxy)
 
-            context_kwargs: dict[str, Any] = {
-                "locale": "en-US",
-                "viewport": {"width": 1280, "height": 720},
-            }
-            if proxy_cfg:
-                context_kwargs["proxy"] = proxy_cfg
+            context_kwargs: dict[str, Any] = {"viewport": {"width": 1280, "height": 720}}
+            if not self._geoip:
+                context_kwargs["locale"] = "en-US"
 
-            context = await browser.new_context(**context_kwargs)
+            context = await worker.browser.new_context(**context_kwargs)
 
             page = context.pages[0] if context.pages else await context.new_page()
             timeout_ms = max(int(cf_wait * 1000), 30000)
@@ -575,7 +632,9 @@ class BrowserPool:
                     status_code = resp.status
                     resp_headers = dict(getattr(resp, "headers", None) or {})
             except Exception as nav_err:
-                logger.warning("cloakbrowser navigation warning on %s: %s", url, nav_err)
+                if proxy and is_proxy_error(str(nav_err)):
+                    raise RuntimeError(f"Proxy {mask_proxy(proxy)} failed: {redact(str(nav_err).splitlines()[0])}") from nav_err
+                logger.warning("cloakbrowser navigation warning on %s: %s", url, redact(str(nav_err)))
 
             # Settle period for challenge scripts to execute
             await asyncio.sleep(2.5)
@@ -882,9 +941,8 @@ class BrowserPool:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(asyncio.shield(context.close()), timeout=5.0)
 
-            if browser_acquired and self._launch_lock is not None:
-                async with self._launch_lock:
-                    self._active_contexts = max(0, self._active_contexts - 1)
+            if worker is not None:
+                await self._release(worker)
 
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.info(

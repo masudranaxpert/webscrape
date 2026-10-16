@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from app.core.browser import pool
 from app.core.cookie_store import store
 from app.core.fetcher import has_turnstile_widget, httpcloak_fetch
+from app.core.proxy import is_proxy_error, mask_proxy, proxy_key, redact, resolve_proxy
 from app.schemas.scraping import FetchRequest, FetchResponse, RequestMeta
 
 
@@ -107,22 +108,19 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     t_start = time.monotonic()
 
     host = store.host_of(req.url)
-    cache_key = store.cache_key(host, req.session_id)
+
+    # Egress identity: explicit proxy > "direct" opt-out > DEFAULT_PROXY routing rule
+    proxy = resolve_proxy(req.proxy, host)
+    req = req.model_copy(update={"proxy": proxy})
+    identity = proxy_key(proxy)
+
+    # cf_clearance is bound to the egress IP, UA and TLS fingerprint that earned it: cookies live in a per-proxy namespace
+    cache_key = store.cache_key(host, req.session_id, identity)
     cached_cookies = store.get(cache_key) or {}
     ident = store.get_identity(cache_key)
     cached_ua = ident["user_agent"]
-
-    # cf_clearance is bound to the UA, egress IP and TLS fingerprint that earned it: replay with the same identity
-    if cached_cookies and req.proxy and ident["proxy"] != req.proxy:
-        cached_cookies = {}
-        cached_ua = None
-        logs_pre = "[IDENTITY] Request proxy differs from the one that earned the cached cookies -> cache ignored"
-    else:
-        logs_pre = None
-        if cached_cookies and not req.proxy and ident["proxy"]:
-            req = req.model_copy(update={"proxy": ident["proxy"]})
-        if cached_cookies and "preset" not in req.model_fields_set and ident["preset"]:
-            req = req.model_copy(update={"preset": ident["preset"]})
+    if cached_cookies and "preset" not in req.model_fields_set and ident["preset"]:
+        req = req.model_copy(update={"preset": ident["preset"]})
     raw_effective = {**cached_cookies, **req.inject_cookies}
     effective_cookies, was_truncated = store.filter_and_limit(
         cookies=raw_effective,
@@ -132,9 +130,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     )
     cache_hit = bool(cached_cookies)
 
-    if logs_pre:
-        logs.append(logs_pre)
     logs.append(f"[INIT] Request initialized for target: {req.url} (Method: {req.method})")
+    logs.append(f"[PROXY] Egress via {mask_proxy(proxy)}")
 
     session_label = f" (Session: {req.session_id})" if req.session_id else ""
     if cache_hit:
@@ -165,7 +162,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             logs.append(f"[CACHE] Applied cached session User-Agent: {effective_ua[:45]}...")
 
     if cached_cookies:
-        logs.append(f"[IDENTITY] Sticky identity from cache: proxy={'yes' if req.proxy else 'none'} preset={req.preset}")
+        logs.append(f"[IDENTITY] Sticky identity from cache: egress={mask_proxy(proxy)} preset={req.preset}")
 
     # 1. Fast path: Direct fingerprint HTTP request
     auto_capture = False
@@ -210,6 +207,30 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 url=result.final_url,
                 protocol=result.protocol,
                 extracted=_extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector and not result.error else None,
+                logs=logs,
+                meta=RequestMeta(
+                    via="http",
+                    request_type="http_request",
+                    preset=req.preset,
+                    cf_bypass_attempted=False,
+                    cache_hit=cache_hit,
+                    cookies_used=len(effective_cookies),
+                    user_agent=effective_ua,
+                ),
+            )
+
+        if proxy and result.error and is_proxy_error(result.error):
+            # The browser would go through the same dead proxy: fail fast instead of burning a browser solve
+            proxy_err = redact(result.error)
+            logs.append(f"[PROXY-FAIL] {mask_proxy(proxy)}: {proxy_err}")
+            return FetchResponse(
+                status_code=502,
+                headers={},
+                body=f"Proxy connection failed: {proxy_err}",
+                cookies={},
+                url=req.url,
+                protocol=None,
+                extracted=None,
                 logs=logs,
                 meta=RequestMeta(
                     via="http",
@@ -311,12 +332,12 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     # Do not coalesce if force_browser=True, page-specific selector is required, or isolated session_id is provided
     if not force_browser and not auto_capture and not req.wait_for_selector and not req.session_id:
         async with _coalesce_lock:
-            if host in _coalesce_events:
+            if cache_key in _coalesce_events:
                 is_solver = False
-                wait_event = _coalesce_events[host]
+                wait_event = _coalesce_events[cache_key]
             else:
                 wait_event = asyncio.Event()
-                _coalesce_events[host] = wait_event
+                _coalesce_events[cache_key] = wait_event
 
     if not is_solver and wait_event:
         logs.append(f"[COALESCE] Waiting for concurrent browser solver to finish for '{host}'...")
@@ -458,9 +479,9 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     except Exception as exc:
         total_ms = int((time.monotonic() - t_start) * 1000)
-        logs.append(f"[ERROR] Browser solver execution error: {exc} ({total_ms}ms)")
+        logs.append(f"[ERROR] Browser solver execution error: {redact(str(exc))} ({total_ms}ms)")
         logs.append("[FAIL] Pipeline failed to resolve request")
-        logger.exception("Browser engine failure on %s: %s", req.url, exc)
+        logger.error("Browser engine failure on %s: %s", req.url, redact(str(exc)))
         return FetchResponse(
             status_code=502,
             headers={},
@@ -484,6 +505,6 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         # Wake up any requests waiting on this host's browser solve
         if is_solver and wait_event:
             async with _coalesce_lock:
-                if host in _coalesce_events:
-                    _coalesce_events[host].set()
-                    del _coalesce_events[host]
+                if cache_key in _coalesce_events:
+                    _coalesce_events[cache_key].set()
+                    del _coalesce_events[cache_key]

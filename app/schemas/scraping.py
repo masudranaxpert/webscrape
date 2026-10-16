@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.proxy import DIRECT_SENTINELS, normalize_proxy
+
 
 class RequestMeta(BaseModel):
     """Execution diagnostics and routing metadata."""
@@ -112,7 +114,11 @@ class FetchRequest(BaseModel):
     # Network & fingerprint settings
     proxy: str | None = Field(
         default=None,
-        description="Proxy URL (e.g. 'http://proxy:8080' or 'socks5://127.0.0.1:1080').",
+        description=(
+            "Egress proxy: 'http://user:pass@host:port', 'https://…' or 'socks5://user:pass@host:port' (socks5h accepted). "
+            "Omit to use the server's DEFAULT_PROXY rule, or send 'direct' to bypass it. "
+            "Invalid proxies are rejected (422) instead of silently connecting direct."
+        ),
         examples=[None],
     )
     preset: str = Field(
@@ -223,6 +229,13 @@ class FetchRequest(BaseModel):
                 return None
             return val
         return v
+
+    @field_validator("proxy")
+    @classmethod
+    def validate_proxy(cls, v: str | None) -> str | None:
+        if v is None or v.lower() in DIRECT_SENTINELS:
+            return v.lower() if v else v
+        return normalize_proxy(v)
 
     @field_validator("method", mode="before")
     @classmethod
