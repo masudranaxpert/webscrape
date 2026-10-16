@@ -21,8 +21,10 @@ async def verify_api_key(
     Returns 401 Unauthorized if API key is missing or invalid.
     """
     if not API_KEY:
-        # If API_KEY is not configured in .env, permit execution
-        return ""
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server configuration error: API_KEY is not configured on the server.",
+        )
 
     provided_key = header_key or (bearer_creds.credentials if bearer_creds else None)
 

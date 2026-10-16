@@ -485,7 +485,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         return FetchResponse(
             status_code=502,
             headers={},
-            body=f"Pipeline error: {exc}",
+            body=f"Pipeline error: {redact(str(exc))}",
             cookies={},
             url=req.url,
             protocol=None,

@@ -25,5 +25,4 @@ async def health() -> JSONResponse:
         "debug": DEBUG,
         "domains_cached": len(cached),
         "browser_pool": pool.stats(),
-        "cached_domains": list(cached.keys()),
     })

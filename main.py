@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.core.browser import pool
-from app.core.config import DEBUG, PORT, TEMPLATES_DIR, configure_logging
+from app.core.config import API_KEY, DEBUG, PORT, TEMPLATES_DIR, configure_logging
 from app.web.router import web_router
 
 configure_logging()
@@ -34,6 +34,8 @@ TAGS_METADATA = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not DEBUG and not API_KEY:
+        raise RuntimeError("FATAL: API_KEY must be configured in environment for production.")
     logger.info("Anti API starting (DEBUG=%s, PORT=%d)", DEBUG, PORT)
     await pool.start()
     yield

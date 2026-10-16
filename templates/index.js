@@ -7,6 +7,17 @@ let currentResponseData = null;
 let cachedDomainsData = {};
 let ttlIntervalTimer = null;
 
+// HTML entity escaping for XSS prevention
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // Syntax highlighters
 function syntaxHighlight(json) {
   if (typeof json !== 'string') {
@@ -382,7 +393,9 @@ const cfgProxy = document.getElementById('cfgProxy');
 if (btnTestUserProxy && cfgProxy) {
   btnTestUserProxy.addEventListener('click', () => {
     const saved = localStorage.getItem('anti_playground_proxy') || '';
-    cfgProxy.value = saved;
+    if (saved) {
+      cfgProxy.value = saved;
+    }
   });
 }
 
@@ -482,6 +495,41 @@ if (btnCopyJson) {
     if (!currentResponseData) return;
     navigator.clipboard.writeText(JSON.stringify(currentResponseData, null, 2)).then(() => {
       const span = btnCopyJson.querySelector('span');
+      if (span) {
+        const orig = span.textContent;
+        span.textContent = 'Copied!';
+        setTimeout(() => { span.textContent = orig; }, 1800);
+      }
+    });
+  });
+}
+
+// Copy HTML Response Helper
+const btnCopyHtml = document.getElementById('btnCopyHtml');
+if (btnCopyHtml) {
+  btnCopyHtml.addEventListener('click', () => {
+    if (!currentResponseData || typeof currentResponseData.body !== 'string') return;
+    navigator.clipboard.writeText(currentResponseData.body).then(() => {
+      const span = btnCopyHtml.querySelector('span');
+      if (span) {
+        const orig = span.textContent;
+        span.textContent = 'Copied!';
+        setTimeout(() => { span.textContent = orig; }, 1800);
+      }
+    });
+  });
+}
+
+// Copy Extracted Content Helper
+const btnCopyExtracted = document.getElementById('btnCopyExtracted');
+if (btnCopyExtracted) {
+  btnCopyExtracted.addEventListener('click', () => {
+    if (!currentResponseData || currentResponseData.extracted === null || currentResponseData.extracted === undefined) return;
+    const textToCopy = typeof currentResponseData.extracted === 'string'
+      ? currentResponseData.extracted
+      : JSON.stringify(currentResponseData.extracted, null, 2);
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      const span = btnCopyExtracted.querySelector('span');
       if (span) {
         const orig = span.textContent;
         span.textContent = 'Copied!';
@@ -700,7 +748,7 @@ fetchForm.addEventListener('submit', async (e) => {
       if (items.length > 0) {
         let extHtml = '<div style="display:flex;flex-direction:column;gap:8px;">';
         items.forEach((item, idx) => {
-          extHtml += `<div class="extracted-item"><span style="color:var(--text-muted);margin-right:8px;">#${idx + 1}</span>${String(item).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+          extHtml += `<div class="extracted-item"><span style="color:var(--text-muted);margin-right:8px;">#${idx + 1}</span>${escapeHtml(item)}</div>`;
         });
         extHtml += '</div>';
         extractedList.innerHTML = extHtml;
@@ -720,15 +768,17 @@ fetchForm.addEventListener('submit', async (e) => {
       let cHtml = '<div style="display:flex;flex-direction:column;gap:12px;">';
       cKeys.forEach(k => {
         const isClearance = k.toLowerCase().includes('cf_clearance');
+        const safeKey = escapeHtml(k);
+        const safeVal = escapeHtml(cookies[k]);
         cHtml += `
           <div style="background:#202024;border:1px solid ${isClearance ? 'rgba(234,88,12,0.4)' : '#2e2e34'};border-radius:8px;padding:12px 16px;">
             <div style="color:${isClearance ? '#fb923c' : '#38bdf8'};font-weight:700;font-size:0.86rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
               <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${isClearance ? '#fb923c' : '#38bdf8'};"></span>
-              ${k}
+              ${safeKey}
               ${isClearance ? '<span style="font-size:0.7rem;padding:2px 6px;border-radius:4px;background:rgba(234,88,12,0.15);color:#fb923c;">Cloudflare Clearance</span>' : ''}
             </div>
             <div style="font-family:var(--font-mono);font-size:0.82rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.35);padding:8px 12px;border-radius:6px;line-height:1.6;user-select:all;border:1px solid rgba(255,255,255,0.05);">
-              ${cookies[k]}
+              ${safeVal}
             </div>
           </div>
         `;
@@ -745,10 +795,12 @@ fetchForm.addEventListener('submit', async (e) => {
     if (hKeys.length > 0) {
       let hHtml = '<div style="display:flex;flex-direction:column;gap:8px;">';
       hKeys.forEach(k => {
+        const safeHeader = escapeHtml(k);
+        const safeVal = escapeHtml(headers[k]);
         hHtml += `
           <div style="background:#202024;border:1px solid #2e2e34;border-radius:6px;padding:8px 12px;display:flex;flex-direction:column;gap:3px;">
-            <div style="color:#a78bfa;font-weight:700;font-size:0.82rem;">${k}</div>
-            <div style="font-family:var(--font-mono);font-size:0.8rem;color:#e2e8f0;word-break:break-all;">${headers[k]}</div>
+            <div style="color:#a78bfa;font-weight:700;font-size:0.82rem;">${safeHeader}</div>
+            <div style="font-family:var(--font-mono);font-size:0.8rem;color:#e2e8f0;word-break:break-all;">${safeVal}</div>
           </div>
         `;
       });
@@ -788,10 +840,10 @@ fetchForm.addEventListener('submit', async (e) => {
         <div style="background:#202024;border:1px solid rgba(234,88,12,0.4);border-radius:8px;padding:16px;">
           <div style="color:#fb923c;font-weight:700;font-size:0.95rem;margin-bottom:8px;">Turnstile Clearance Token</div>
           <div style="font-family:var(--font-mono);font-size:0.84rem;color:#e2e8f0;word-break:break-all;background:rgba(0,0,0,0.4);padding:10px 14px;border-radius:6px;user-select:all;">
-            ${data.turnstile_token}
+            ${escapeHtml(data.turnstile_token)}
           </div>
           <div style="margin-top:12px;display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);">
-            <div>Sitekey: <code style="color:#e4e4e7;">${data.turnstile_sitekey || 'auto'}</code></div>
+            <div>Sitekey: <code style="color:#e4e4e7;">${escapeHtml(data.turnstile_sitekey || 'auto')}</code></div>
             <div>Solved At: <code style="color:#e4e4e7;">${data.turnstile_solved_at ? new Date(data.turnstile_solved_at * 1000).toLocaleTimeString() : 'N/A'}</code></div>
           </div>
         </div>
@@ -801,8 +853,8 @@ fetchForm.addEventListener('submit', async (e) => {
         data.token_submissions.forEach(sub => {
           tsHtml += `
             <div style="margin-top:8px;background:#202024;border:1px solid #2e2e34;border-radius:6px;padding:10px 14px;font-size:0.82rem;">
-              <div style="color:#38bdf8;font-weight:600;">${sub.method || 'POST'} ${sub.url} (${sub.response_status})</div>
-              <pre style="margin-top:6px;color:#a1a1aa;font-size:0.78rem;"><code>${sub.response_body || ''}</code></pre>
+              <div style="color:#38bdf8;font-weight:600;">${escapeHtml(sub.method || 'POST')} ${escapeHtml(sub.url)} (${escapeHtml(sub.response_status)})</div>
+              <pre style="margin-top:6px;color:#a1a1aa;font-size:0.78rem;"><code>${escapeHtml(sub.response_body || '')}</code></pre>
             </div>
           `;
         });
@@ -820,8 +872,8 @@ fetchForm.addEventListener('submit', async (e) => {
     statusPill.className = 'metric-pill amber';
     statusPill.textContent = 'Status: Failed';
     timePill.textContent = `Latency: ${elapsed} ms`;
-    jsonOutput.innerHTML = `<span style="color:#ef4444">Error executing request: ${err.message}</span>`;
-    if (logsList) logsList.innerHTML = `<span style="color:#ef4444">[ERROR] Pipeline failed: ${err.message}</span>`;
+    jsonOutput.innerHTML = `<span style="color:#ef4444">Error executing request: ${escapeHtml(err.message)}</span>`;
+    if (logsList) logsList.innerHTML = `<span style="color:#ef4444">[ERROR] Pipeline failed: ${escapeHtml(err.message)}</span>`;
   } finally {
     submitBtn.disabled = false;
     btnLabel.textContent = 'Send Request';
@@ -965,17 +1017,24 @@ function renderDomainCards() {
       host = parts[1];
     }
 
+    const safeHost = escapeHtml(host);
+    const safeIdentity = escapeHtml(identity);
+    const safeUa = escapeHtml(ua);
+    const safeDomainKey = escapeHtml(domainKey);
+    const safeCardId = 'card-' + domainKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeTtlId = 'ttl-' + domainKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+
     html += `
-      <div class="domain-card" id="card-${domainKey.replace(/[^a-zA-Z0-9_-]/g, '_')}">
+      <div class="domain-card" id="${safeCardId}">
         <div class="domain-card-header">
           <div class="domain-title-wrap">
             <div class="domain-host">
-              <span>${host}</span>
-              ${identity ? `<span class="domain-identity-badge">${identity}</span>` : ''}
+              <span>${safeHost}</span>
+              ${identity ? `<span class="domain-identity-badge">${safeIdentity}</span>` : ''}
             </div>
             <span style="font-size:0.75rem;color:var(--text-muted);">${cookieNames.length} session cookie${cookieNames.length === 1 ? '' : 's'}</span>
           </div>
-          <div class="domain-ttl-pill" data-ttl="${ttl}" id="ttl-${domainKey.replace(/[^a-zA-Z0-9_-]/g, '_')}">
+          <div class="domain-ttl-pill" data-ttl="${ttl}" id="${safeTtlId}">
             ${formatTtl(ttl)}
           </div>
         </div>
@@ -983,7 +1042,7 @@ function renderDomainCards() {
         <div class="domain-body">
           <div class="domain-ua-row">
             <span class="domain-ua-label">User-Agent Profile</span>
-            <div class="domain-ua-text" title="${ua.replace(/"/g, '&quot;')}">${ua}</div>
+            <div class="domain-ua-text" title="${safeUa}">${safeUa}</div>
           </div>
 
           <div class="domain-cookies-wrap">
@@ -991,7 +1050,7 @@ function renderDomainCards() {
             <div class="domain-cookies-chips">
               ${cookieNames.map(name => {
                 const isClearance = name.toLowerCase().includes('cf_clearance');
-                return `<span class="domain-cookie-chip ${isClearance ? 'highlight' : ''}">${name}</span>`;
+                return `<span class="domain-cookie-chip ${isClearance ? 'highlight' : ''}">${escapeHtml(name)}</span>`;
               }).join('')}
             </div>
           </div>
@@ -999,7 +1058,7 @@ function renderDomainCards() {
 
         <div class="domain-card-footer">
           <span style="font-size:0.75rem;color:var(--text-muted);">LRU Stored</span>
-          <button type="button" class="btn-purge-domain" data-domain="${domainKey}">
+          <button type="button" class="btn-purge-domain" data-domain="${safeDomainKey}">
             <svg class="svg-icon" style="width:13px;height:13px;" viewBox="0 0 24 24">
               <polyline points="3 6 5 6 21 6" />
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />

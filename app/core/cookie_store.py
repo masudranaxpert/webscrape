@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import fnmatch
 import logging
-import re
 import time
 from collections import OrderedDict
 from urllib.parse import urlparse
@@ -109,8 +108,10 @@ class CookieStore:
         if _tld_extractor is not None:
             with contextlib.suppress(Exception):
                 ext = _tld_extractor(clean_host)
-                if ext.registered_domain:
-                    return ext.registered_domain
+                if ext.domain and ext.suffix:
+                    return f"{ext.domain}.{ext.suffix}"
+                if ext.domain:
+                    return ext.domain
         # Fallback for common multi-part TLDs (.co.uk, .com.au, etc.) if tldextract unavailable
         parts = clean_host.split(".")
         if len(parts) > 2 and parts[-2] in ("co", "com", "org", "net", "edu", "gov") and len(parts[-1]) == 2:
