@@ -175,6 +175,9 @@ class BrowserJobTimeout(RuntimeError):
 
 # Licensed-launch retries when the single seat is still held by a just-closed process
 _SEAT_RETRIES = 2
+# Origin statuses that mean "past Cloudflare, but the site itself refuses" (e.g. target-site's per-IP "Too many
+# downloads" page is a 429): waiting out cf_wait for a selector or token on such a page only wastes the budget
+_ORIGIN_REFUSAL_STATUSES = (429,)
 _SEAT_RETRY_DELAY_SEC = 2.5
 
 
@@ -633,6 +636,7 @@ class BrowserPool:
         ts_solved_at: float | None = None
         initial_clearance: str | None = None
         attempted_clearance_reload: bool = False
+        origin_refused = False
 
         try:
             context_kwargs: dict[str, Any] = {"viewport": {"width": 1280, "height": 720}}
@@ -764,6 +768,11 @@ class BrowserPool:
                 while not await self._is_ready(page, selector):
                     if time.monotonic() >= deadline:
                         break
+                    if last_doc.get("status") in _ORIGIN_REFUSAL_STATUSES and await self._is_bypassed(page):
+                        origin_refused = True
+                        notes.append(f"Origin answered HTTP {last_doc['status']} past the challenge -> solver stopped early")
+                        logger.info("Origin refused %s with HTTP %s; stopping solver early", url, last_doc["status"])
+                        break
 
                     # 1. Real-time fresh cf_clearance detection
                     raw_cookies = await _bounded(context.cookies())
@@ -891,7 +900,7 @@ class BrowserPool:
                 status = status_code if (last_doc or status_code != 403) else 200
             else:
                 status = status_code if status_code != 200 else 403
-            if bypassed and selector and not await self._has_selector(page, selector):
+            if bypassed and selector and not origin_refused and not await self._has_selector(page, selector):
                 notes.append(f"Timed out waiting for selector '{selector}' (cf_wait={cf_wait}s)")
                 logger.warning("Selector '%s' never appeared on %s within cf_wait budget", selector, url)
             final_url = page.url or url
@@ -899,7 +908,7 @@ class BrowserPool:
             widget_present = False
             # Embedded widgets are injected ~2s after the real page loads, so right after a wall solve "no widget yet"
             # is not final: give it a short window to appear before concluding the page has none
-            widget_deadline = time.monotonic() + (5.0 if wall else 0.0)
+            widget_deadline = time.monotonic() + (5.0 if wall and not origin_refused else 0.0)
             while True:
                 with contextlib.suppress(Exception):
                     widget_present = bool((await _bounded(page.evaluate(_TURNSTILE_STATE_JS))).get("present"))
@@ -915,10 +924,10 @@ class BrowserPool:
                     if (await _bounded(page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or []))).get("token"):
                         capture_token = True
                         notes.append("Solved Turnstile token found in DOM -> capturing")
-            if widget_present and not capture_token:
+            if widget_present and not capture_token and not origin_refused:
                 capture_token = True
                 notes.append("Turnstile widget detected -> auto-capturing token")
-            if capture_token:
+            if capture_token and not origin_refused:
                 async def _read_token(window: float) -> None:
                     nonlocal ts_token, ts_sitekey
                     until = time.monotonic() + window
@@ -956,7 +965,7 @@ class BrowserPool:
             if submissions:
                 notes.append(f"Site submitted the token itself -> {len(submissions)} submission(s) captured in token_submissions")
 
-            if click_selector:
+            if click_selector and not origin_refused:
                 logger.info("Handling click_selector '%s'...", click_selector)
                 for _ in range(15):
                     btn_disabled = True
