@@ -20,4 +20,7 @@ done
 # Window manager so headed --start-maximized and window geometry are honored
 DISPLAY=":${DISPLAY_NUM}" openbox &
 
+# Restrict glibc memory arenas to prevent virtual address space (VmSize) bloat and fork() failure
+export MALLOC_ARENA_MAX=2
+
 exec uvicorn main:app --host 0.0.0.0 --port "${PORT:-8000}" --timeout-graceful-shutdown 20 "$@"

@@ -281,6 +281,12 @@ class BrowserPool:
             "--disable-crash-reporter",
             "--window-size=1280,720",
             "--fingerprint-allow-3p-cookies",
+            "--js-flags=--max-old-space-size=512",
+            "--disable-gpu",
+            "--disable-background-networking",
+            "--disable-default-apps",
+            "--disable-extensions",
+            "--mute-audio",
         ]
         if not self._geoip:
             # Without geoip the locale is pinned; with geoip CloakBrowser derives it from the exit IP

@@ -40,8 +40,8 @@ BROWSER_CLICK_TIMEOUT_SEC: float = float(os.getenv("BROWSER_CLICK_TIMEOUT_SEC", 
 # one-seat plan and MAX_BROWSERS=2, "proxy" keeps the licensed build on the proxied (Cloudflare-heavy) traffic and
 # runs direct traffic on the keyless v146 build, so the two never evict each other
 BROWSER_LICENSED_IDENTITY: str = os.getenv("BROWSER_LICENSED_IDENTITY", "any").strip().lower()
-# Idle lifetime for the process holding the license seat: kept warm far longer than unlicensed workers
-BROWSER_LICENSED_LIFETIME_SEC: int = int(os.getenv("BROWSER_LICENSED_LIFETIME_SEC", "3600"))
+# Idle lifetime for the process holding the license seat: 600s (10 min) to regularly drop VmSize/cache accumulation
+BROWSER_LICENSED_LIFETIME_SEC: int = int(os.getenv("BROWSER_LICENSED_LIFETIME_SEC", "600"))
 # How often a proxied worker re-checks its exit IP; a change retires the process (after its tabs finish) and drops
 # the clearance cookies earned on the old IP
 BROWSER_EXIT_IP_CHECK_SEC: float = float(os.getenv("BROWSER_EXIT_IP_CHECK_SEC", "60"))
