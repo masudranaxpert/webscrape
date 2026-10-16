@@ -33,6 +33,9 @@ BROWSER_JOB_OVERHEAD_SEC: float = float(os.getenv("BROWSER_JOB_OVERHEAD_SEC", "9
 BROWSER_QUEUE_TIMEOUT_SEC: float = float(os.getenv("BROWSER_QUEUE_TIMEOUT_SEC", "60"))
 # Per-call ceiling for page.evaluate / content / cookies (they have no native timeout)
 BROWSER_CALL_TIMEOUT_SEC: float = float(os.getenv("BROWSER_CALL_TIMEOUT_SEC", "10"))
+# Ceiling for one Turnstile click: humanized mouse paths run several seconds and stretch past 10s on a loaded 2-vCPU
+# host; cancelling mid-path means the widget never receives the click, so this is deliberately generous
+BROWSER_CLICK_TIMEOUT_SEC: float = float(os.getenv("BROWSER_CLICK_TIMEOUT_SEC", "30"))
 # Derive timezone, locale and WebRTC IP from the egress IP (needs cloakbrowser[geoip])
 BROWSER_GEOIP: bool = os.getenv("BROWSER_GEOIP", "true").lower() in ("true", "1", "yes")
 

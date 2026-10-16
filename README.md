@@ -102,6 +102,7 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | `BROWSER_JOB_OVERHEAD_SEC` | `90` | Hard ceiling per browser job = `cf_wait` + this (queue wait included). A hung tab is cancelled, gets `504`, and its process is replaced. Keep the total below your client's HTTP timeout |
 | `BROWSER_QUEUE_TIMEOUT_SEC` | `60` | Longest a request waits for a browser slot before failing fast with `503` |
 | `BROWSER_CALL_TIMEOUT_SEC` | `10` | Ceiling for single page calls (`evaluate`, `content`, cookies, Turnstile clicks) that have no native timeout |
+| `BROWSER_CLICK_TIMEOUT_SEC` | `30` | Ceiling for one humanized Turnstile click. Too low cancels the click mid-path and the widget never solves |
 | `BROWSER_GEOIP` | `true` | Match timezone, locale and WebRTC IP to the egress IP (GeoLite2 DB is baked into the image) |
 | `DEFAULT_PROXY` | | Proxy for requests that send no `proxy` |
 | `DEFAULT_PROXY_DOMAINS` | | Comma-separated domains (subdomains included) routed through `DEFAULT_PROXY`; empty = all |

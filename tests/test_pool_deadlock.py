@@ -208,6 +208,35 @@ def test_seat_busy_retries_licensed_launch_before_fallback():
     asyncio.run(run())
 
 
+def test_slow_humanized_click_is_not_cancelled_but_hung_click_is():
+    async def run():
+        orig = (browser_mod.BROWSER_CALL_TIMEOUT_SEC, browser_mod.BROWSER_CLICK_TIMEOUT_SEC)
+        # Scaled down: page calls cap at 0.1s, clicks at 0.6s; a 0.3s click mirrors a 15s humanized click on the
+        # server, which the old shared 10s cap cancelled mid-path
+        browser_mod.BROWSER_CALL_TIMEOUT_SEC, browser_mod.BROWSER_CLICK_TIMEOUT_SEC = 0.1, 0.6
+        try:
+            pool, _ = _pool()
+
+            async def slow_click(page):
+                await asyncio.sleep(0.3)
+                return True
+
+            pool._click_turnstile_once = slow_click
+            assert await pool._click_turnstile_checkbox(None) is True, "slow click was cancelled"
+
+            async def hung_click(page):
+                await asyncio.Event().wait()
+
+            pool._click_turnstile_once = hung_click
+            t0 = time.monotonic()
+            assert await pool._click_turnstile_checkbox(None) is False
+            assert time.monotonic() - t0 < 1.5, "hung click was not bounded"
+        finally:
+            browser_mod.BROWSER_CALL_TIMEOUT_SEC, browser_mod.BROWSER_CLICK_TIMEOUT_SEC = orig
+
+    asyncio.run(run())
+
+
 def proxy_id(proxy: str) -> str:
     from app.core.proxy import proxy_key
 
@@ -224,6 +253,7 @@ def run_all():
         test_tab_cap_spans_all_browsers()
         test_stalled_page_call_is_bounded()
         test_seat_busy_retries_licensed_launch_before_fallback()
+        test_slow_humanized_click_is_not_cancelled_but_hung_click_is()
     finally:
         browser_mod.BROWSER_JOB_OVERHEAD_SEC, browser_mod.BROWSER_QUEUE_TIMEOUT_SEC = original
     print("[OK] Browser pool liveness checks passed.")

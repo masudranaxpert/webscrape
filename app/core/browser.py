@@ -16,6 +16,7 @@ from cloakbrowser.geoip import resolve_proxy_exit_ip
 
 from app.core.config import (
     BROWSER_CALL_TIMEOUT_SEC,
+    BROWSER_CLICK_TIMEOUT_SEC,
     BROWSER_GEOIP,
     BROWSER_JOB_OVERHEAD_SEC,
     BROWSER_QUEUE_TIMEOUT_SEC,
@@ -537,11 +538,16 @@ class BrowserPool:
 
     async def _click_turnstile_checkbox(self, page: Any) -> bool:
         """Click the Turnstile checkbox, bounded: humanized mouse moves on a wedged frame must not stall the solve loop."""
+        started = time.monotonic()
         try:
-            return await asyncio.wait_for(self._click_turnstile_once(page), timeout=BROWSER_CALL_TIMEOUT_SEC)
+            return await asyncio.wait_for(self._click_turnstile_once(page), timeout=BROWSER_CLICK_TIMEOUT_SEC)
         except asyncio.TimeoutError:
-            logger.warning("Turnstile click attempt timed out after %.0fs; continuing solve loop", BROWSER_CALL_TIMEOUT_SEC)
+            logger.warning("Turnstile click attempt timed out after %.0fs; continuing solve loop", BROWSER_CLICK_TIMEOUT_SEC)
             return False
+        finally:
+            took = time.monotonic() - started
+            if took > 5.0:
+                logger.info("Turnstile click attempt took %.1fs (host under load?)", took)
 
     async def _click_turnstile_once(self, page: Any) -> bool:
         """Find Turnstile checkbox inside shadow DOM or frame and click it via native events."""
