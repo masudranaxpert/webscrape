@@ -77,6 +77,20 @@ def has_turnstile_widget(body: str) -> bool:
     return bool(body) and any(m in body for m in _WIDGET_MARKERS)
 
 
+# Extra seconds past the native timeout before giving up on the request from Python's side
+_NATIVE_GRACE_SEC = 10.0
+
+
+def _close_when_done(task: "asyncio.Future", session: "httpcloak.Session") -> None:
+    """Close a session only after its native request finished; consume the outcome so nothing is left unretrieved."""
+    if not task.cancelled():
+        task.exception()
+    try:
+        session.close()
+    except Exception:
+        pass
+
+
 def _sanitize_http_version(http_version: str | None) -> str | None:
     if not http_version or not isinstance(http_version, str):
         return None
@@ -119,6 +133,9 @@ async def httpcloak_fetch(
         session_kwargs["http_version"] = clean_version
 
     session = httpcloak.Session(**session_kwargs)
+    # Set when the native request may still be running: closing the session then frees memory its goroutine is
+    # still using (use-after-free -> segfault that killed the whole API without a traceback)
+    close_deferred = False
 
     try:
         # Pre-seed session cookie jar
@@ -142,19 +159,24 @@ async def httpcloak_fetch(
         t0 = time.monotonic()
         payload = body if method.upper() not in ("GET", "HEAD") else None
 
-        try:
-            resp = await asyncio.wait_for(
-                session.request_async(
-                    method=method.upper(),
-                    url=url,
-                    headers=req_headers,
-                    data=payload,
-                    cookies=cookies or {},
-                    allow_redirects=True,
-                ),
-                timeout=float(timeout),
+        # The native side owns the deadline (timeout=); the outer guard only catches a native hang and is shielded,
+        # because cancelling the native future makes its completion callback hit a dead future (InvalidStateError)
+        native = asyncio.ensure_future(
+            session.request_async(
+                method=method.upper(),
+                url=url,
+                headers=req_headers,
+                data=payload,
+                cookies=cookies or {},
+                allow_redirects=True,
+                timeout=int(timeout),
             )
+        )
+        try:
+            resp = await asyncio.wait_for(asyncio.shield(native), timeout=float(timeout) + _NATIVE_GRACE_SEC)
         except asyncio.TimeoutError:
+            close_deferred = True
+            native.add_done_callback(lambda t, s=session: _close_when_done(t, s))
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.warning("httpcloak request timed out after %ds [%dms]: %s", timeout, elapsed_ms, url)
             return FetcherResult(
@@ -168,6 +190,11 @@ async def httpcloak_fetch(
                 elapsed_ms=elapsed_ms,
                 error=f"HTTP request timed out after {timeout}s",
             )
+        except asyncio.CancelledError:
+            # The caller was cancelled (e.g. a browser job deadline): leave the native request to finish on its own
+            close_deferred = True
+            native.add_done_callback(lambda t, s=session: _close_when_done(t, s))
+            raise
         except Exception as err:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.warning("httpcloak request failed (%s) [%dms]: %s", type(err).__name__, elapsed_ms, redact(str(err)))
@@ -275,4 +302,5 @@ async def httpcloak_fetch(
             elapsed_ms=elapsed_ms,
         )
     finally:
-        session.close()
+        if not close_deferred:
+            session.close()
