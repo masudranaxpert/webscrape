@@ -459,23 +459,7 @@ class BrowserPool:
                         await asyncio.sleep(0.5)
                         return True
 
-            # 2. Coordinate click via bounding box
-            try:
-                frame_el = await frame.frame_element()
-                box = await frame_el.bounding_box()
-                if box and box["width"] >= 20:
-                    click_x = box["x"] + min(28, box["width"] * 0.15)
-                    click_y = box["y"] + box["height"] / 2
-                    logger.info("Turnstile checkbox located: clicking at (%.1f, %.1f)", click_x, click_y)
-                    await page.mouse.move(click_x, click_y)
-                    await asyncio.sleep(0.1)
-                    await page.mouse.click(click_x, click_y)
-                    await asyncio.sleep(0.5)
-                    return True
-            except Exception as e:
-                logger.debug("Turnstile frame bounding box exception: %s", e)
-
-            # 3. Recursive shadow DOM evaluation
+            # 2. Recursive shadow DOM evaluation (exact center coordinate)
             try:
                 info = await frame.evaluate(_FIND_CHECKBOX_JS)
                 if info and info.get("found") and info.get("w", 0) > 0 and not info.get("checked"):
@@ -484,6 +468,7 @@ class BrowserPool:
                     if box:
                         click_x = box["x"] + info["x"]
                         click_y = box["y"] + info["y"]
+                        logger.info("Turnstile checkbox located via shadow DOM: clicking at (%.1f, %.1f)", click_x, click_y)
                         await page.mouse.move(click_x, click_y)
                         await asyncio.sleep(0.1)
                         await page.mouse.click(click_x, click_y)
@@ -491,6 +476,22 @@ class BrowserPool:
                         return True
             except Exception as e:
                 logger.debug("Turnstile frame evaluate exception: %s", e)
+
+            # 3. Heuristic coordinate click via bounding box fallback
+            try:
+                frame_el = await frame.frame_element()
+                box = await frame_el.bounding_box()
+                if box and box["width"] >= 20:
+                    click_x = box["x"] + min(28, box["width"] * 0.15)
+                    click_y = box["y"] + box["height"] / 2
+                    logger.info("Turnstile checkbox located via bounding box: clicking at (%.1f, %.1f)", click_x, click_y)
+                    await page.mouse.move(click_x, click_y)
+                    await asyncio.sleep(0.1)
+                    await page.mouse.click(click_x, click_y)
+                    await asyncio.sleep(0.5)
+                    return True
+            except Exception as e:
+                logger.debug("Turnstile frame bounding box exception: %s", e)
 
         # 4. Keyboard Tab+Space fallback
         with contextlib.suppress(Exception):
