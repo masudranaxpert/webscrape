@@ -407,22 +407,26 @@ class BrowserPool:
             (page_load_state or "").lower(), "domcontentloaded"
         )
 
+        browser_args = [
+            FAKE_SHADOW_ARG,
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--lang=en-US,en",
+            "--no-crashpad",
+            "--disable-crash-reporter",
+            "--window-size=1280,720",
+            "--fingerprint-allow-3p-cookies",
+        ]
+        if self._headless:
+            browser_args.append("--ozone-override-screen-size=1920,1080")
+
         launch_kwargs: dict[str, Any] = {
             "headless": self._headless,
             "humanize": True,
             "human_preset": "careful",
             "_suppress_maximize": True,
-            "args": [
-                FAKE_SHADOW_ARG,
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--lang=en-US,en",
-                "--no-crashpad",
-                "--disable-crash-reporter",
-                "--window-size=1280,720",
-                "--fingerprint-allow-3p-cookies",
-            ],
+            "args": browser_args,
         }
         if proxy_cfg:
             launch_kwargs["geoip"] = True
@@ -440,6 +444,8 @@ class BrowserPool:
         ts_token: str | None = None
         ts_sitekey: str | None = None
         ts_solved_at: float | None = None
+        initial_clearance: str | None = None
+        attempted_clearance_reload: bool = False
 
         try:
             browser = await self._get_browser(launch_kwargs)
@@ -549,30 +555,44 @@ class BrowserPool:
                 last_click = 0.0
                 extended = False
                 deadline = time.monotonic() + cf_wait
-                cf_clearance_at: float | None = None
+                fresh_clearance_at: float | None = None
+
+                # Snapshot clearance present before solver execution (e.g. from pre-injected cookies)
+                raw_init_cookies = await context.cookies()
+                initial_clearance = next(
+                    (c.get("value") for c in raw_init_cookies if c.get("name") == "cf_clearance"),
+                    None,
+                )
+                if initial_clearance and wall:
+                    logger.info("Pre-injected cf_clearance did not bypass challenge wall; awaiting fresh Turnstile solve")
 
                 while not await self._is_ready(page, selector):
                     if time.monotonic() >= deadline:
                         break
 
-                    # 1. Real-time cf_clearance detection
+                    # 1. Real-time fresh cf_clearance detection
                     raw_cookies = await context.cookies()
-                    has_domain_clearance = any(
-                        c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10
-                        for c in raw_cookies
+                    current_clearance = next(
+                        (c.get("value") for c in raw_cookies if c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10),
+                        None,
+                    )
+                    is_fresh_clearance = bool(
+                        current_clearance and (initial_clearance is None or current_clearance != initial_clearance)
                     )
 
-                    if has_domain_clearance:
-                        if cf_clearance_at is None:
-                            cf_clearance_at = time.monotonic()
-                            logger.info("cf_clearance cookie obtained during solve loop")
-                            notes.append("cf_clearance obtained")
+                    if is_fresh_clearance:
+                        if fresh_clearance_at is None:
+                            fresh_clearance_at = time.monotonic()
+                            logger.info("Fresh cf_clearance cookie obtained during solve loop")
+                            notes.append("Fresh cf_clearance obtained")
 
-                        # If Cloudflare hasn't auto-redirected within 2.0s, reload to target URL
+                        # Give Cloudflare client script 3.5s to complete its natural auto-redirect.
+                        # If still on challenge page after 3.5s, execute at most ONE reload to target URL.
                         title = (await page.title()).lower()
                         is_challenge = any(w in title for w in ("just a moment", "verify you are human", "attention required", "security check"))
-                        if is_challenge and (time.monotonic() - cf_clearance_at >= 2.0):
-                            logger.info("Clearance present but still on challenge page -> navigating to destination URL")
+                        if is_challenge and not attempted_clearance_reload and (time.monotonic() - fresh_clearance_at >= 3.5):
+                            attempted_clearance_reload = True
+                            logger.info("Fresh clearance present but still on challenge page -> executing single reload")
                             notes.append("Navigating to destination with fresh clearance")
                             with contextlib.suppress(Exception):
                                 resp = await page.goto(url, wait_until=load_state, timeout=15000)
@@ -581,7 +601,7 @@ class BrowserPool:
                                     resp_headers = dict(getattr(resp, "headers", None) or {})
                             await asyncio.sleep(1.0)
                             if await self._is_bypassed(page):
-                                logger.info("Page successfully cleared after clearance reload!")
+                                logger.info("Page successfully cleared after single clearance reload!")
                                 break
 
                     # 2. Throttled interactive click attempt
@@ -604,14 +624,18 @@ class BrowserPool:
 
                     await asyncio.sleep(0.8)
 
-                # Post-loop clearance navigation check
+                # Post-loop clearance navigation check (only if fresh clearance exists and never reloaded)
                 raw_cookies = await context.cookies()
-                has_domain_clearance = any(
-                    c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10
-                    for c in raw_cookies
+                final_clearance = next(
+                    (c.get("value") for c in raw_cookies if c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10),
+                    None,
                 )
-                if has_domain_clearance and not await self._is_bypassed(page):
-                    logger.info("Clearance present at loop exit -> executing reload to target URL")
+                is_fresh_final = bool(
+                    final_clearance and (initial_clearance is None or final_clearance != initial_clearance)
+                )
+                if is_fresh_final and not await self._is_bypassed(page) and not attempted_clearance_reload:
+                    attempted_clearance_reload = True
+                    logger.info("Fresh clearance present at loop exit -> executing single reload to target URL")
                     notes.append("Executing reload with clearance cookie")
                     with contextlib.suppress(Exception):
                         resp = await page.goto(url, wait_until=load_state, timeout=15000)
@@ -643,10 +667,15 @@ class BrowserPool:
 
             # Final state capture
             bypassed = await self._is_bypassed(page)
-            if not bypassed:
+            if not bypassed and not attempted_clearance_reload:
                 raw_cookies = await context.cookies()
-                if any(c.get("name") == "cf_clearance" for c in raw_cookies):
-                    logger.info("cf_clearance exists; executing recovery reload to target...")
+                final_clearance = next(
+                    (c.get("value") for c in raw_cookies if c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10),
+                    None,
+                )
+                if final_clearance and (initial_clearance is None or final_clearance != initial_clearance):
+                    attempted_clearance_reload = True
+                    logger.info("Fresh cf_clearance exists; executing recovery reload to target...")
                     with contextlib.suppress(Exception):
                         resp = await page.goto(url, wait_until="domcontentloaded", timeout=12000)
                         if resp is not None and getattr(resp, "status", None):

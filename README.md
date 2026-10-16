@@ -81,7 +81,7 @@ Cookie endpoints: `GET /cookies`, `GET /cookies/{domain}`, `DELETE /cookies/{dom
 | `API_KEY` | | Required for `/fetch` and `/cookies` |
 | `PORT` | `8000` | |
 | `MAX_TABS` | `5` | Concurrent browser tabs inside the shared engine |
-| `BROWSER_HEADLESS` | `true` | |
+| `BROWSER_HEADLESS` | `false` | Default false: runs headfully inside Xvfb (:99) with Openbox for human-like screen geometry |
 | `CLOAKBROWSER_LICENSE_KEY` | | Optional: unlocks latest Chromium build (v154+). Get a free key at [cloakbrowser.dev/free](https://cloakbrowser.dev/free). Without a key, falls back to v146. |
 | `DEFAULT_COOKIE_TTL` | `86400` | Seconds |
 | `MAX_CACHED_DOMAINS` | `10` | |

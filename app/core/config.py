@@ -21,7 +21,7 @@ MAX_TABS: int = int(os.getenv("MAX_TABS", "5"))
 MAX_CACHED_DOMAINS: int = int(os.getenv("MAX_CACHED_DOMAINS", "64"))
 MAX_CACHED_SESSIONS: int = int(os.getenv("MAX_CACHED_SESSIONS", "256"))
 DEFAULT_SESSION_TTL: int = int(os.getenv("DEFAULT_SESSION_TTL", "600"))
-BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "true").lower() not in ("false", "0", "no")
+BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "false").lower() not in ("false", "0", "no")
 VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() in ("true", "1", "yes")
 BROWSER_MAX_LIFETIME_SEC: int = int(os.getenv("BROWSER_MAX_LIFETIME_SEC", "300"))
 
