@@ -82,12 +82,47 @@ _TURNSTILE_TOKEN_JS = """(names) => {
     return {token, sitekey};
 }"""
 
-_BLOCK_MARKERS = (
-    "you have been blocked",
-    "sorry, you have been blocked",
-    "error 1020",
-    "access denied",
-)
+# Fast in-browser DOM probe to determine if Cloudflare challenge wall has cleared
+_IS_BYPASSED_JS = """() => {
+    try {
+        const title = (document.title || '').toLowerCase();
+        const challengeTitles = [
+            'just a moment',
+            'attention required',
+            'security check',
+            'checking your browser',
+            'verifying you are human'
+        ];
+        if (challengeTitles.some(t => title.includes(t))) return false;
+
+        // Interstitial challenge wall DOM containers
+        if (document.querySelector(
+            '#challenge-running, #challenge-form, form#challenge-form, #challenge-stage, #cf-wrapper, .cf-browser-verification, #trk_jschal_js'
+        )) return false;
+
+        // Challenge platform orchestrator scripts and globals
+        if (window._cf_chl_opt || window.__cf_chl_opt || window._cf_chl_ctx) return false;
+        if (document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')) return false;
+
+        // Challenge iframe inside challenge container
+        if (document.querySelector('#challenge-stage iframe, #challenge-form iframe, #cf-wrapper iframe')) return false;
+
+        // Explicit block / access denied messages in body text
+        const bodyText = (document.body ? (document.body.innerText || '') : '').toLowerCase();
+        if (
+            bodyText.includes('please complete the captcha') ||
+            bodyText.includes('you have been blocked') ||
+            bodyText.includes('sorry, you have been blocked') ||
+            bodyText.includes('error 1020') ||
+            bodyText.includes('access denied')
+        ) return false;
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+}"""
+
 
 
 @dataclasses.dataclass
@@ -287,20 +322,9 @@ class BrowserPool:
             )
 
     async def _is_bypassed(self, page: Any) -> bool:
-        """Check if challenge wall has cleared."""
+        """Check if challenge wall has cleared via fast in-browser DOM probe."""
         try:
-            title = (await page.title()).lower()
-            if "just a moment" in title or "attention required" in title or "security check" in title:
-                return False
-
-            html_content = (await page.content()).lower()
-            if "please complete the captcha" in html_content or 'id="challenge-running"' in html_content:
-                return False
-
-            if any(marker in html_content for marker in _BLOCK_MARKERS):
-                return False
-
-            return True
+            return bool(await page.evaluate(_IS_BYPASSED_JS))
         except Exception:
             return False
 
