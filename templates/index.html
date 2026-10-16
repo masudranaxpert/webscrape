@@ -619,13 +619,13 @@
               When a Cloudflare Turnstile challenge is solved, clearance tokens and sessions are stored automatically. Subsequent requests reuse these cookies to hit the fast-path (300ms) without opening a browser.
             </p>
             <ul>
-              <li><strong>Subdomain Isolation & Wildcard Fallback</strong>: Cookies are stored per exact hostname (e.g. <code>sub.target-site.example</code>) instead of collapsing into the root domain. This keeps host-only session cookies (e.g. <code>ci_session</code>, auth tokens) isolated across subdomains. Cloudflare bypass tokens (<code>cf_clearance</code>) automatically fall back to the root domain so sibling subdomains reuse clearance instantly without re-solving challenges.</li>
-              <li><strong><code>session_id</code></strong>: Pass an isolated session identifier (e.g. <code>"task-dl-1"</code>) for concurrent multi-step scraping tasks. Parallel tasks on the same host run in separate cookie namespaces without race conditions or session clobbering.</li>
+              <li><strong>Dual-Store Architecture (Zero LRU Pollution)</strong>: Separates long-lived domain caches (64 slots, 24h TTL) from ephemeral scraping sessions (256 slots, 10m TTL). High-volume task session churn never evicts root domain clearances (such as <code>cinefreak.net</code>).</li>
+              <li><strong>Strict Session Isolation</strong>: When <code>session_id</code> is provided (e.g. <code>"task-dl-1"</code>), the request runs in an isolated sandbox. It never falls back to the root domain and never writes to root, preventing session cookie contamination (like <code>ci_session</code>) and bot-score cross-linking via <code>__cf_bm</code>.</li>
+              <li><strong>Synchronized Root Clearance</strong>: Non-session domain clearances write strictly <code>cf_clearance</code> to the root domain, atomically synchronizing matching User-Agent and proxy identities. When a challenge wall is encountered, rejected clearance is immediately purged from both the local session and root storage.</li>
               <li><strong><code>cookie_allowlist</code></strong>: Array of allowed cookie names or glob/regex wildcard patterns (e.g. <code>["cf_*", "__cf*", "*session*", "PHPSESSID"]</code>). Non-essential tracking cookies and analytics are pruned automatically.</li>
               <li><strong><code>cookie_limit</code></strong>: Upper bound on the number of cookies sent in request headers (default <code>35</code>, 3.5 KB max) to prevent HTTP 400 header overflow.</li>
               <li><strong><code>inject_cookies</code></strong>: Inject custom session cookies before navigation. Injected cookies always bypass allowlist filters and take precedence.</li>
-              <li><strong><code>cookie_ttl</code></strong>: Cache duration in seconds (default <code>86400</code> = 24 hours).</li>
-              <li><strong>Capacity & LRU Eviction</strong>: Stores up to 64 distinct active hosts/sessions concurrently in memory.</li>
+              <li><strong><code>cookie_ttl</code></strong>: Cache duration in seconds for domain-level entries (default <code>86400</code> = 24 hours). Ephemeral sessions default to 10 minutes (<code>600s</code>).</li>
             </ul>
 
             <div class="code-block-wrapper">
