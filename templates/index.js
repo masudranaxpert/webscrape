@@ -124,6 +124,8 @@ setInterval(checkHealth, 10000);
 const fetchForm = document.getElementById('fetchForm');
 const targetUrlInput = document.getElementById('targetUrl');
 const apiKeyInput = document.getElementById('apiKeyInput');
+const proxyInput = document.getElementById('proxyInput');
+const forceBrowserInput = document.getElementById('forceBrowserInput');
 const submitBtn = document.getElementById('submitBtn');
 const btnLabel = document.getElementById('btnLabel');
 const jsonOutput = document.getElementById('jsonOutput');
@@ -139,12 +141,35 @@ const viaPill = document.getElementById('viaPill');
 const cachePill = document.getElementById('cachePill');
 const timePill = document.getElementById('timePill');
 
+// Restore saved API key and proxy from localStorage
+try {
+  if (apiKeyInput) {
+    const savedKey = localStorage.getItem('anti_playground_api_key');
+    if (savedKey) apiKeyInput.value = savedKey;
+  }
+  if (proxyInput) {
+    const savedProxy = localStorage.getItem('anti_playground_proxy');
+    if (savedProxy) proxyInput.value = savedProxy;
+  }
+} catch (e) {}
+
 fetchForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const url = targetUrlInput.value.trim();
   if (!url) return;
 
   const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+  const proxy = proxyInput ? proxyInput.value.trim() : '';
+  const forceBrowser = forceBrowserInput ? forceBrowserInput.checked : false;
+
+  // Persist inputs to localStorage
+  try {
+    if (apiKey) localStorage.setItem('anti_playground_api_key', apiKey);
+    else localStorage.removeItem('anti_playground_api_key');
+
+    if (proxy) localStorage.setItem('anti_playground_proxy', proxy);
+    else localStorage.removeItem('anti_playground_proxy');
+  } catch (e) {}
 
   // If no API key and server quota is already 0, block early
   if (!apiKey && serverQuota.remaining <= 0) {
@@ -184,11 +209,15 @@ fetchForm.addEventListener('submit', async (e) => {
       reqHeaders['X-API-Key'] = apiKey;
     }
 
+    const payload = { url: url };
+    if (proxy) payload.proxy = proxy;
+    if (forceBrowser) payload.force_browser = true;
+
     const endpoint = apiKey ? '/fetch' : '/playground/fetch';
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: reqHeaders,
-      body: JSON.stringify({ url: url })
+      body: JSON.stringify(payload)
     });
 
     const elapsed = Math.round(performance.now() - t0);
@@ -334,7 +363,7 @@ fetchForm.addEventListener('submit', async (e) => {
         let logHtml = '';
         for (const line of logs) {
           let colored = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          colored = colored.replace(/(\[INIT\]|\[HTTP\]|\[RETRY\])/g, '<span style="color:#38bdf8;font-weight:700">$1</span>');
+          colored = colored.replace(/(\[INIT\]|\[HTTP\]|\[RETRY\]|\[PROXY\]|\[IDENTITY\])/g, '<span style="color:#38bdf8;font-weight:700">$1</span>');
           colored = colored.replace(/(\[CACHE\]|\[EXTRACT\])/g, '<span style="color:#10b981;font-weight:700">$1</span>');
           colored = colored.replace(/(\[INJECT\]|\[HEADERS\])/g, '<span style="color:#a78bfa;font-weight:700">$1</span>');
           colored = colored.replace(/(\[HTTP-SUCCESS\]|\[RETRY-SUCCESS\]|\[DONE\])/g, '<span style="color:#4ade80;font-weight:700">$1</span>');
