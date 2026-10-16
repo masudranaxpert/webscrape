@@ -347,19 +347,27 @@ header {
   font-size: 0.95rem;
   border: none;
   border-radius: var(--radius-md);
-  padding: 14px 28px;
+  height: 48px;
+  padding: 0 24px;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   box-shadow: 0 4px 14px rgba(234, 88, 12, 0.25);
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .btn-send:hover {
   opacity: 0.94;
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(234, 88, 12, 0.35);
+}
+
+.btn-send:active {
+  transform: scale(0.97);
 }
 
 .btn-send:disabled {
@@ -375,6 +383,7 @@ header {
   background: var(--bg-terminal);
   overflow: hidden;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  margin-top: 20px;
 }
 
 .response-metrics {
@@ -1115,9 +1124,7 @@ footer {
   text-underline-offset: 2px;
 }
 
-/* ==========================================================================
-   Authentication Vault Banner
-   ========================================================================== */
+/* Authentication vault */
 .api-vault-card {
   margin-bottom: 24px;
   background: var(--bg-surface);
@@ -1299,9 +1306,7 @@ footer {
   border-color: var(--accent-rose);
 }
 
-/* ==========================================================================
-   Stealth Request Studio Form & Command Bar
-   ========================================================================== */
+/* Studio form and presets */
 .studio-presets {
   display: flex;
   align-items: center;
@@ -1341,6 +1346,7 @@ footer {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  margin-bottom: 20px;
 }
 
 .studio-command-bar {
@@ -1523,9 +1529,7 @@ footer {
   50% { opacity: 0.6; transform: scale(0.85); }
 }
 
-/* ==========================================================================
-   Studio Configuration Tabs & Panes (Collapsible Drawer / Default Hidden)
-   ========================================================================== */
+/* Studio configuration drawer */
 .studio-config-card {
   display: none; /* Hidden by default as requested */
   background: var(--bg-surface);
@@ -1881,9 +1885,7 @@ footer {
   cursor: pointer;
 }
 
-/* ==========================================================================
-   Response Panel Enhancements (HTML Preview, Extraction, Actions)
-   ========================================================================== */
+/* Response quick actions */
 .response-quick-actions {
   margin-left: auto;
   display: flex;
@@ -1976,9 +1978,7 @@ footer {
   margin-bottom: 8px;
 }
 
-/* ==========================================================================
-   Domain Cache Explorer Section
-   ========================================================================== */
+/* Domain cache explorer */
 .cache-header-actions {
   display: flex;
   align-items: center;
