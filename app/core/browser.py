@@ -1058,16 +1058,24 @@ class BrowserPool:
 
             if click_selector and not origin_refused:
                 logger.info("Handling click_selector '%s'...", click_selector)
-                for _ in range(15):
-                    btn_disabled = True
-                    note = ""
-                    with contextlib.suppress(Exception):
-                        note = (await _bounded(page.eval_on_selector("#note", "el => el.innerText")) or "").lower()
-                    with contextlib.suppress(Exception):
-                        btn_disabled = await _bounded(page.eval_on_selector(click_selector, "el => el.disabled"))
-                    if not btn_disabled or "verified" in note or ts_token:
-                        break
-                    await asyncio.sleep(1.0)
+                # Fail-fast: only wait for disabled flag to clear if selector actually exists in DOM
+                has_target = False
+                with contextlib.suppress(Exception):
+                    has_target = bool(await _bounded(page.eval_on_selector(click_selector, "el => true")))
+
+                if has_target:
+                    for _ in range(15):
+                        btn_disabled = True
+                        note = ""
+                        with contextlib.suppress(Exception):
+                            note = (await _bounded(page.eval_on_selector("#note", "el => el.innerText")) or "").lower()
+                        with contextlib.suppress(Exception):
+                            btn_disabled = await _bounded(page.eval_on_selector(click_selector, "el => el.disabled"))
+                        if not btn_disabled or "verified" in note or ts_token:
+                            break
+                        await asyncio.sleep(1.0)
+                else:
+                    logger.debug("Selector '%s' not present in DOM; skipping disabled-wait loop", click_selector)
 
                 clicked = False
                 try:
@@ -1107,6 +1115,7 @@ class BrowserPool:
                         if final_url != url:
                             break
 
+            body = ""
             for _ in range(5):
                 try:
                     body = await _bounded(page.content())

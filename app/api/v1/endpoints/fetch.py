@@ -45,9 +45,15 @@ def _cache_redirect(host: str, url: str) -> None:
 
 
 def clear_redirect_cache(host: str | None = None) -> None:
-    """Evict redirect target for a specific host, or clear entirely if None."""
+    """Evict redirect target for a specific host (or all hosts sharing its root domain), or clear entirely if None."""
     if host:
-        _redirect_cache.pop(host, None)
+        root = store.root_domain_of(host)
+        keys_to_del = [
+            k for k in _redirect_cache
+            if k == host or store.root_domain_of(k) == root
+        ]
+        for k in keys_to_del:
+            _redirect_cache.pop(k, None)
     else:
         _redirect_cache.clear()
 
