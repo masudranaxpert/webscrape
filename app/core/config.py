@@ -26,6 +26,13 @@ VERBOSE_BROWSER_LOGS: bool = os.getenv("VERBOSE_BROWSER_LOGS", "false").lower() 
 BROWSER_MAX_LIFETIME_SEC: int = int(os.getenv("BROWSER_MAX_LIFETIME_SEC", "300"))
 # One Chromium process per egress identity (direct / each proxy); bounded by CloakBrowser license seats
 MAX_BROWSERS: int = max(1, int(os.getenv("MAX_BROWSERS", "1")))
+# Hard ceiling for one browser job, queue wait included: cf_wait + this overhead. A hung Playwright call can never hold
+# a tab (and with MAX_BROWSERS=1 the whole pool) longer than this. Keep the total below the client's HTTP timeout.
+BROWSER_JOB_OVERHEAD_SEC: float = float(os.getenv("BROWSER_JOB_OVERHEAD_SEC", "90"))
+# Longest a request may queue for a browser slot before failing fast with 503
+BROWSER_QUEUE_TIMEOUT_SEC: float = float(os.getenv("BROWSER_QUEUE_TIMEOUT_SEC", "60"))
+# Per-call ceiling for page.evaluate / content / cookies (they have no native timeout)
+BROWSER_CALL_TIMEOUT_SEC: float = float(os.getenv("BROWSER_CALL_TIMEOUT_SEC", "10"))
 # Derive timezone, locale and WebRTC IP from the egress IP (needs cloakbrowser[geoip])
 BROWSER_GEOIP: bool = os.getenv("BROWSER_GEOIP", "true").lower() in ("true", "1", "yes")
 

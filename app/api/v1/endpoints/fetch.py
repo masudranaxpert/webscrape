@@ -8,7 +8,7 @@ import time
 from urllib.parse import urlparse
 from fastapi import APIRouter
 
-from app.core.browser import pool
+from app.core.browser import BrowserJobTimeout, BrowserPoolBusy, pool
 from app.core.cookie_store import store
 from app.core.fetcher import has_turnstile_widget, httpcloak_fetch
 from app.core.proxy import is_proxy_error, mask_proxy, proxy_key, redact, resolve_proxy
@@ -479,11 +479,13 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     except Exception as exc:
         total_ms = int((time.monotonic() - t_start) * 1000)
+        # 503: pool saturated (retry later); 504: browser job hit its hard deadline; 502: anything else upstream
+        status_code = 503 if isinstance(exc, BrowserPoolBusy) else 504 if isinstance(exc, BrowserJobTimeout) else 502
         logs.append(f"[ERROR] Browser solver execution error: {redact(str(exc))} ({total_ms}ms)")
         logs.append("[FAIL] Pipeline failed to resolve request")
-        logger.error("Browser engine failure on %s: %s", req.url, redact(str(exc)))
+        logger.error("Browser engine failure on %s (%d): %s", req.url, status_code, redact(str(exc)))
         return FetchResponse(
-            status_code=502,
+            status_code=status_code,
             headers={},
             body=f"Pipeline error: {redact(str(exc))}",
             cookies={},

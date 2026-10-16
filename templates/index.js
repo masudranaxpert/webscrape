@@ -676,18 +676,44 @@ fetchForm.addEventListener('submit', async (e) => {
 
   const t0 = performance.now();
 
+  // The server caps a browser job at cf_wait + 90s; give up a little later instead of hanging on a dropped connection
+  const clientTimeoutSec = (Number(payload.cf_wait) || 45) + 110;
+  const abort = new AbortController();
+  const abortTimer = setTimeout(() => abort.abort(), clientTimeoutSec * 1000);
+
   try {
-    const res = await fetch('/fetch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey
-      },
-      body: JSON.stringify(payload)
-    });
+    let res;
+    try {
+      res = await fetch('/fetch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey
+        },
+        body: JSON.stringify(payload),
+        signal: abort.signal
+      });
+    } catch (netErr) {
+      if (netErr.name === 'AbortError') {
+        throw new Error(`No response after ${clientTimeoutSec}s; the request was abandoned client-side.`);
+      }
+      throw netErr;
+    } finally {
+      clearTimeout(abortTimer);
+    }
 
     const elapsed = Math.round(performance.now() - t0);
-    const data = await res.json();
+    // A reverse proxy that times out returns an empty or HTML body (e.g. 502/504), which res.json() cannot parse
+    const rawText = await res.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      throw new Error(
+        `Gateway returned HTTP ${res.status} with ${rawText ? 'a non-JSON' : 'an empty'} body after ${elapsed} ms. ` +
+        'The upstream connection was dropped (reverse proxy timeout or server restart); retry the request.'
+      );
+    }
     currentResponseData = data;
 
     // Handle 401 Unauthorized

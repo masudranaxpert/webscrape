@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -176,6 +177,11 @@ class _FakeBrowser:
         self.closed = True
 
 
+def _far() -> float:
+    """Queue deadline far enough away that these tests never hit it."""
+    return time.monotonic() + 60
+
+
 def _fake_pool(max_browsers: int) -> tuple[BrowserPool, list[str | None]]:
     pool = BrowserPool(max_tabs=10, headless=True, max_lifetime_sec=3600, max_browsers=max_browsers, geoip=False)
     launched: list[str | None] = []
@@ -191,12 +197,12 @@ def _fake_pool(max_browsers: int) -> tuple[BrowserPool, list[str | None]]:
 def test_pool_reuses_worker_per_identity():
     async def run():
         pool, launched = _fake_pool(max_browsers=2)
-        w1 = await pool._acquire(None)
-        w2 = await pool._acquire(None)
-        w3 = await pool._acquire("http://a.example:1")
+        w1 = await pool._acquire(None, _far())
+        w2 = await pool._acquire(None, _far())
+        w3 = await pool._acquire("http://a.example:1", _far())
         assert w1 is w2 and w1 is not w3
         assert launched == [None, "http://a.example:1"]
-        assert pool.stats() == {"browsers": 2, "max_browsers": 2, "active_tabs": 3}
+        assert pool.stats() == {"browsers": 2, "max_browsers": 2, "active_tabs": 3, "max_tabs": 10, "queued": 0}
 
     asyncio.run(run())
 
@@ -204,9 +210,9 @@ def test_pool_reuses_worker_per_identity():
 def test_pool_evicts_idle_lru_when_full():
     async def run():
         pool, launched = _fake_pool(max_browsers=1)
-        w_direct = await pool._acquire(None)
+        w_direct = await pool._acquire(None, _far())
         await pool._release(w_direct)
-        w_proxy = await pool._acquire("http://a.example:1")
+        w_proxy = await pool._acquire("http://a.example:1", _far())
         assert w_direct.browser.closed and not w_proxy.browser.closed
         assert launched == [None, "http://a.example:1"]
 
@@ -216,14 +222,14 @@ def test_pool_evicts_idle_lru_when_full():
 def test_pool_waits_for_busy_identity_and_does_not_starve():
     async def run():
         pool, launched = _fake_pool(max_browsers=1)
-        w_direct = await pool._acquire(None)
+        w_direct = await pool._acquire(None, _far())
 
-        proxied = asyncio.create_task(pool._acquire("http://a.example:1"))
+        proxied = asyncio.create_task(pool._acquire("http://a.example:1", _far()))
         await asyncio.sleep(0.05)
         assert not proxied.done()
 
         # A new direct request must not join the busy process while the proxy waits for a slot
-        late_direct = asyncio.create_task(pool._acquire(None))
+        late_direct = asyncio.create_task(pool._acquire(None, _far()))
         await asyncio.sleep(0.05)
         assert not late_direct.done()
 
@@ -242,10 +248,10 @@ def test_pool_waits_for_busy_identity_and_does_not_starve():
 def test_pool_replaces_disconnected_worker():
     async def run():
         pool, launched = _fake_pool(max_browsers=1)
-        w = await pool._acquire(None)
+        w = await pool._acquire(None, _far())
         await pool._release(w)
         w.browser.closed = True
-        w2 = await pool._acquire(None)
+        w2 = await pool._acquire(None, _far())
         assert w2 is not w and launched == [None, None]
 
     asyncio.run(run())

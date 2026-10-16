@@ -1,8 +1,11 @@
 services:
   anti:
-    init: true
+    # tini is PID 1 via the image ENTRYPOINT; compose `init: true` would wrap it and break its subreaper role
     build: .
     restart: unless-stopped
+    # Let uvicorn finish in-flight requests and close Chromium on SIGTERM, so the CloakBrowser license seat is freed
+    # before the replacement container launches (otherwise it starts on the unlicensed fallback engine)
+    stop_grace_period: 30s
     expose:
       - "8000"
     env_file:
