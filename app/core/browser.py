@@ -16,6 +16,9 @@ from cloakbrowser.geoip import resolve_proxy_exit_ip
 
 from app.core.config import (
     BROWSER_CALL_TIMEOUT_SEC,
+    BROWSER_EXIT_IP_CHECK_SEC,
+    BROWSER_LICENSED_IDENTITY,
+    BROWSER_LICENSED_LIFETIME_SEC,
     BROWSER_CLICK_TIMEOUT_SEC,
     BROWSER_GEOIP,
     BROWSER_JOB_OVERHEAD_SEC,
@@ -25,6 +28,7 @@ from app.core.config import (
     MAX_BROWSERS,
     MAX_TABS,
 )
+from app.core.cookie_store import store
 from app.core.proxy import browser_proxy, is_proxy_error, mask_proxy, proxy_key, redact
 
 logger = logging.getLogger(__name__)
@@ -162,8 +166,11 @@ class _Worker:
     # Set when a tab on this process blew its hard deadline: the process may be wedged, so it takes no new tabs and
     # is replaced as soon as its remaining tabs finish
     poisoned: bool = False
-    # False when the license seat was busy and the unlicensed fallback engine was launched instead
+    # False when this process runs the keyless build (by policy, or because the license seat was busy)
     licensed: bool = True
+    # Egress IP the process was fingerprinted for (timezone/locale/WebRTC); re-checked for proxied workers
+    exit_ip: str | None = None
+    exit_ip_checked_at: float = dataclasses.field(default_factory=time.monotonic)
 
 
 class BrowserPoolBusy(RuntimeError):
@@ -203,15 +210,22 @@ class BrowserPool:
         max_lifetime_sec: int = BROWSER_MAX_LIFETIME_SEC,
         max_browsers: int = MAX_BROWSERS,
         geoip: bool = BROWSER_GEOIP,
+        licensed_identity: str = BROWSER_LICENSED_IDENTITY,
+        licensed_lifetime_sec: int = BROWSER_LICENSED_LIFETIME_SEC,
+        exit_ip_check_sec: float = BROWSER_EXIT_IP_CHECK_SEC,
     ) -> None:
         self._max_tabs = max_tabs
         self._headless = headless
         self._max_lifetime_sec = max_lifetime_sec
         self._max_browsers = max_browsers
         self._geoip = geoip
+        self._licensed_identity = licensed_identity if licensed_identity in ("any", "proxy", "direct") else "any"
+        self._licensed_lifetime_sec = licensed_lifetime_sec
+        self._exit_ip_check_sec = exit_ip_check_sec
         self._cond: asyncio.Condition | None = None
         self._workers: dict[str, _Worker] = {}
         self._waiting: dict[str, int] = {}
+        self._probes: dict[str, asyncio.Task] = {}
         self._default_browser_ua: str | None = None
 
     async def start(self) -> None:
@@ -228,12 +242,14 @@ class BrowserPool:
             logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
 
         logger.info(
-            "BrowserPool initialized | max_concurrent=%d | max_browsers=%d | headless=%s | geoip=%s | max_lifetime=%ds",
+            "BrowserPool initialized | max_concurrent=%d | max_browsers=%d | headless=%s | geoip=%s | max_lifetime=%ds"
+            " | licensed_identity=%s",
             self._max_tabs,
             self._max_browsers,
             self._headless,
             self._geoip,
             self._max_lifetime_sec,
+            self._licensed_identity,
         )
 
     def stats(self) -> dict[str, int]:
@@ -244,7 +260,16 @@ class BrowserPool:
             "active_tabs": sum(w.active for w in self._workers.values()),
             "max_tabs": self._max_tabs,
             "queued": sum(self._waiting.values()),
+            "licensed_browsers": sum(1 for w in self._workers.values() if w.licensed),
         }
+
+    def _may_license(self, proxy: str | None) -> bool:
+        """Whether this egress identity may take the license seat under BROWSER_LICENSED_IDENTITY."""
+        if self._licensed_identity == "proxy":
+            return proxy is not None
+        if self._licensed_identity == "direct":
+            return proxy is None
+        return True
 
     def _launch_args(self) -> list[str]:
         args = [
@@ -270,8 +295,22 @@ class BrowserPool:
             with contextlib.suppress(Exception):
                 await browser.close()
 
-    async def _launch_browser(self, launch_kwargs: dict[str, Any]) -> tuple[Any, bool]:
+    async def _launch_keyless(self, launch_kwargs: dict[str, Any]) -> Any:
+        """Launch the keyless build (v146): needs no license seat. Launches are serialized under the pool lock, so
+        hiding the key from the environment for the duration of this call cannot race another launch."""
+        fallback_kwargs = dict(launch_kwargs)
+        fallback_kwargs["license_key"] = None
+        saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
+        try:
+            return await cb.launch_async(**fallback_kwargs)
+        finally:
+            if saved_key:
+                os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
+
+    async def _launch_browser(self, launch_kwargs: dict[str, Any], use_license: bool = True) -> tuple[Any, bool]:
         """Launch CloakBrowser; on a license/seat error fall back to the unauthenticated engine. Returns (browser, licensed)."""
+        if not use_license:
+            return await self._launch_keyless(launch_kwargs), False
         last_err: Exception | None = None
         for attempt in range(_SEAT_RETRIES + 1):
             try:
@@ -289,14 +328,7 @@ class BrowserPool:
         err_msg = str(last_err).lower()
         if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
             logger.warning("CloakBrowser license failure (%s); falling back to unauthenticated engine", redact(str(last_err)))
-            fallback_kwargs = dict(launch_kwargs)
-            fallback_kwargs["license_key"] = None
-            saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
-            try:
-                return await cb.launch_async(**fallback_kwargs), False
-            finally:
-                if saved_key:
-                    os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
+            return await self._launch_keyless(launch_kwargs), False
         raise last_err
 
     async def _launch_worker(self, key: str, proxy: str | None) -> _Worker:
@@ -312,6 +344,7 @@ class BrowserPool:
             launch_kwargs["proxy"] = browser_proxy(proxy)
 
         timezone: str | None = None
+        exit_ip: str | None = None
         if self._geoip:
             try:
                 timezone, locale, exit_ip = await asyncio.to_thread(cb.maybe_resolve_geoip, True, launch_kwargs.get("proxy"), None, None, None)
@@ -331,10 +364,11 @@ class BrowserPool:
                         raise RuntimeError(f"Proxy {mask_proxy(proxy)} unreachable: could not resolve its exit IP") from err
                     launch_kwargs["args"].append(f"--fingerprint-webrtc-ip={exit_ip}")
 
-        browser, licensed = await self._launch_browser(launch_kwargs)
+        use_license = self._may_license(proxy)
+        browser, licensed = await self._launch_browser(launch_kwargs, use_license=use_license)
         now = time.monotonic()
         created_at = now
-        if not licensed:
+        if use_license and not licensed:
             # A busy seat is usually a previous container still shutting down: retry the licensed build once this
             # fallback process has been idle for a minute instead of running unlicensed for a full lifetime
             created_at = now - max(0, self._max_lifetime_sec - 60)
@@ -342,7 +376,10 @@ class BrowserPool:
             "Launched browser worker for %s (%d/%d, licensed=%s)",
             mask_proxy(proxy), len(self._workers) + 1, self._max_browsers, licensed,
         )
-        return _Worker(key=key, proxy=proxy, browser=browser, created_at=created_at, last_used=now, timezone=timezone, licensed=licensed)
+        return _Worker(
+            key=key, proxy=proxy, browser=browser, created_at=created_at, last_used=now, timezone=timezone,
+            licensed=licensed, exit_ip=exit_ip, exit_ip_checked_at=now,
+        )
 
     def _is_stale(self, worker: _Worker) -> bool:
         """Disconnected, or past its lifetime with no open tabs (recycling drops HTTP cache and memory bloat)."""
@@ -353,7 +390,49 @@ class BrowserPool:
             return True
         if worker.active:
             return False
-        return worker.poisoned or (time.monotonic() - worker.created_at) >= self._max_lifetime_sec
+        # The process holding the license seat stays warm much longer: relaunching it costs a seat round-trip and
+        # a cold Cloudflare clearance
+        lifetime = self._licensed_lifetime_sec if worker.licensed else self._max_lifetime_sec
+        return worker.poisoned or (time.monotonic() - worker.created_at) >= lifetime
+
+    def _schedule_exit_ip_probe(self, worker: _Worker) -> None:
+        """Re-check a proxied worker's exit IP at most every BROWSER_EXIT_IP_CHECK_SEC, in the background: the probe
+        is a network call through the proxy and must never run while holding the pool lock."""
+        if worker.proxy is None or worker.poisoned or worker.key in self._probes:
+            return
+        if time.monotonic() - worker.exit_ip_checked_at < self._exit_ip_check_sec:
+            return
+        worker.exit_ip_checked_at = time.monotonic()
+        task = asyncio.create_task(self._probe_exit_ip(worker))
+        self._probes[worker.key] = task
+        task.add_done_callback(lambda _t, key=worker.key: self._probes.pop(key, None))
+
+    async def _probe_exit_ip(self, worker: _Worker) -> None:
+        """On an exit-IP change, retire the process gracefully (no new tabs, closed once its tabs finish) and drop the
+        clearances earned on the old IP. Same IP: nothing changes and the warm browser keeps serving."""
+        try:
+            current = await asyncio.wait_for(
+                asyncio.to_thread(resolve_proxy_exit_ip, browser_proxy(worker.proxy)), timeout=BROWSER_CALL_TIMEOUT_SEC
+            )
+        except Exception as err:
+            logger.debug("Exit IP check failed for %s: %s", mask_proxy(worker.proxy), redact(str(err)))
+            return
+        if not current or current == worker.exit_ip:
+            return
+        if worker.exit_ip is None:
+            worker.exit_ip = current
+            return
+        if self._cond is None:
+            self._cond = asyncio.Condition()
+        async with self._cond:
+            if self._workers.get(worker.key) is not worker or worker.poisoned:
+                return
+            logger.info(
+                "Exit IP for %s changed %s -> %s: retiring its browser after %d open tab(s), dropping %d cookie jar(s)",
+                mask_proxy(worker.proxy), worker.exit_ip, current, worker.active, store.invalidate_identity(worker.key),
+            )
+            worker.poisoned = True
+            self._cond.notify_all()
 
     async def _acquire(self, proxy: str | None, deadline: float) -> _Worker:
         """Reserve a tab on the browser for this egress identity, launching or evicting processes as needed.
@@ -376,6 +455,9 @@ class BrowserPool:
                     await self._close_browser_safely(worker.browser)
                     worker = None
 
+                if worker is not None:
+                    self._schedule_exit_ip_probe(worker)
+
                 full = len(self._workers) >= self._max_browsers
                 tabs_free = sum(w.active for w in self._workers.values()) < self._max_tabs
                 if worker is not None:
@@ -393,7 +475,8 @@ class BrowserPool:
                 else:
                     idle = [w for w in self._workers.values() if w.active == 0]
                     if idle:
-                        victim = min(idle, key=lambda w: w.last_used)
+                        # Keep the licensed (warm, seat-holding) process: evict keyless ones first, then LRU
+                        victim = min(idle, key=lambda w: (w.licensed, w.last_used))
                         logger.info("Browser slots full: closing idle worker for %s to serve %s", mask_proxy(victim.proxy), mask_proxy(proxy))
                         del self._workers[victim.key]
                         await self._close_browser_safely(victim.browser)
@@ -436,6 +519,8 @@ class BrowserPool:
         """Clean up all browser processes."""
         if self._cond is None:
             self._cond = asyncio.Condition()
+        for task in list(self._probes.values()):
+            task.cancel()
         async with self._cond:
             for worker in list(self._workers.values()):
                 await self._close_browser_safely(worker.browser)

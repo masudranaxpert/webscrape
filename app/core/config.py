@@ -36,6 +36,15 @@ BROWSER_CALL_TIMEOUT_SEC: float = float(os.getenv("BROWSER_CALL_TIMEOUT_SEC", "1
 # Ceiling for one Turnstile click: humanized mouse paths run several seconds and stretch past 10s on a loaded 2-vCPU
 # host; cancelling mid-path means the widget never receives the click, so this is deliberately generous
 BROWSER_CLICK_TIMEOUT_SEC: float = float(os.getenv("BROWSER_CLICK_TIMEOUT_SEC", "30"))
+# Which egress identity may use the CloakBrowser license seat: "any" (first come), "proxy" or "direct". With a
+# one-seat plan and MAX_BROWSERS=2, "proxy" keeps the licensed build on the proxied (Cloudflare-heavy) traffic and
+# runs direct traffic on the keyless v146 build, so the two never evict each other
+BROWSER_LICENSED_IDENTITY: str = os.getenv("BROWSER_LICENSED_IDENTITY", "any").strip().lower()
+# Idle lifetime for the process holding the license seat: kept warm far longer than unlicensed workers
+BROWSER_LICENSED_LIFETIME_SEC: int = int(os.getenv("BROWSER_LICENSED_LIFETIME_SEC", "3600"))
+# How often a proxied worker re-checks its exit IP; a change retires the process (after its tabs finish) and drops
+# the clearance cookies earned on the old IP
+BROWSER_EXIT_IP_CHECK_SEC: float = float(os.getenv("BROWSER_EXIT_IP_CHECK_SEC", "60"))
 # Derive timezone, locale and WebRTC IP from the egress IP (needs cloakbrowser[geoip])
 BROWSER_GEOIP: bool = os.getenv("BROWSER_GEOIP", "true").lower() in ("true", "1", "yes")
 

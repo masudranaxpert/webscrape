@@ -202,7 +202,7 @@ def test_pool_reuses_worker_per_identity():
         w3 = await pool._acquire("http://a.example:1", _far())
         assert w1 is w2 and w1 is not w3
         assert launched == [None, "http://a.example:1"]
-        assert pool.stats() == {"browsers": 2, "max_browsers": 2, "active_tabs": 3, "max_tabs": 10, "queued": 0}
+        assert pool.stats() == {"browsers": 2, "max_browsers": 2, "active_tabs": 3, "max_tabs": 10, "queued": 0, "licensed_browsers": 2}
 
     asyncio.run(run())
 

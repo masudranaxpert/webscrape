@@ -343,6 +343,16 @@ class CookieStore:
                 removed = True
         return removed
 
+    def invalidate_identity(self, identity: str) -> int:
+        """Drop every entry earned through one egress identity (its exit IP changed, so its clearances are dead)."""
+        prefix = f"{identity}@"
+        removed = 0
+        for bucket in (self._domain_store, self._session_store):
+            for key in [k for k in bucket if k.startswith(prefix)]:
+                del bucket[key]
+                removed += 1
+        return removed
+
     def all_domains(self) -> dict[str, dict]:
         """Return non-expired domain entries with remaining TTL."""
         now = time.time()
