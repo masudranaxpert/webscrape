@@ -237,6 +237,13 @@ class BrowserPool:
         except Exception as err:
             logger.warning("cloakbrowser binary check warning: %s", err)
 
+        loop_module = type(asyncio.get_running_loop()).__module__
+        if loop_module.startswith("uvloop"):
+            logger.warning(
+                "Event loop is uvloop: browser launches fork() the process and fail with Errno 12 once a merged writable "
+                "mapping exceeds RAM+swap. Run uvicorn with --loop asyncio (docker-entrypoint.sh does)."
+            )
+
         has_display = bool(os.getenv("DISPLAY"))
         if has_display and not self._headless:
             logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
@@ -281,12 +288,6 @@ class BrowserPool:
             "--disable-crash-reporter",
             "--window-size=1280,720",
             "--fingerprint-allow-3p-cookies",
-            "--js-flags=--max-old-space-size=512",
-            "--disable-gpu",
-            "--disable-background-networking",
-            "--disable-default-apps",
-            "--disable-extensions",
-            "--mute-audio",
         ]
         if not self._geoip:
             # Without geoip the locale is pinned; with geoip CloakBrowser derives it from the exit IP
