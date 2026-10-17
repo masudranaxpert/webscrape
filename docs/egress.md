@@ -17,6 +17,9 @@ identity has its own Chromium process and its own cookie namespace (`px-<hash>@h
 
 An explicit `proxy` always pins both engines. Only requests *without* a `proxy` field use the hybrid below.
 
+`/solve-turnstile` follows the browser column: no `proxy` = the default browser (WARP when set), `"direct"` =
+server IP, a URL = that proxy.
+
 ## `WARP_PROXY` unset
 
 Everything leaves from the server's own IP. Simple, and fine when the server's IP is not challenged much.

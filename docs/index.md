@@ -6,7 +6,25 @@ It tries a fast, TLS-fingerprinted HTTP request first and opens a stealth Chromi
 After the browser earns `cf_clearance`, later requests for that host go back to the fast HTTP engine with the same
 cookies, User-Agent, TLS fingerprint and egress IP.
 
-!!! tip "New here? Read in this order"
+## Make your first request
+
+```bash
+curl -X POST https://your-domain.example/fetch \
+  -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/"}'
+```
+
+The optional `proxy` field picks the route:
+
+| You send | Route |
+| --- | --- |
+| nothing | **Automatic, recommended.** Simple pages go out from the server; Cloudflare challenges and Turnstile tokens are solved by the default browser (WARP + licensed build when `WARP_PROXY` is set) |
+| `"direct"` | The server's own IP for everything (no WARP, no proxy) |
+| `"socks5://user:pass@host:port"` | Your proxy for everything |
+
+Examples for every case, Python code and error meanings: **[Making requests](requests.md)**.
+
+!!! tip "Working on the service? Read in this order"
     1. [Architecture](architecture.md) — the moving parts and how a request travels through them
     2. [Egress & WARP](egress.md) — which IP each request leaves from, with `WARP_PROXY` set and unset
     3. [Configuration](configuration.md) — every environment variable: what it does, where it is used, why
@@ -22,18 +40,12 @@ cookies, User-Agent, TLS fingerprint and egress IP.
 | [`GET /health`](api/other.md#health) | Pool, cache, Turnstile and WARP status (unauthenticated, no secrets) |
 | `GET /docs` | Interactive OpenAPI (Swagger) for the running server |
 
-## Quick start
+## Run it yourself
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env          # set API_KEY
 uvicorn main:app --host 0.0.0.0 --port 8000 --loop asyncio
-```
-
-```bash
-curl -X POST http://localhost:8000/fetch \
-  -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/", "selector": "h1"}'
 ```
 
 Production runs with Docker Compose (the API plus a WARP sidecar). See [Deploy](operations/deploy.md).

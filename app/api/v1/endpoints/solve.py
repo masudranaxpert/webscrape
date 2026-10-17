@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.browser import BrowserPoolBusy, ProxySolvingDisabled, pool
-from app.core.proxy import normalize_proxy
+from app.core.proxy import mask_proxy, resolve_proxy
 from app.core.turnstile import solve as _solve
 
 router = APIRouter()
@@ -22,7 +22,12 @@ class TurnstileSolveRequest(BaseModel):
     timeout: int = Field(default=30, ge=5, le=120, description="Max seconds to wait for the token.")
     proxy: str | None = Field(
         default=None,
-        description="Egress proxy for the solve; omit for direct. Solving is 409 when MAX_BROWSERS=0.",
+        description=(
+            "Egress for the solve. Omitted: the default browser (WARP + the licensed build when WARP_PROXY is set), "
+            "which Cloudflare challenges far less than a keyless browser on a datacenter IP (~5 s vs 10-27 s "
+            "measured). 'direct' forces the server IP; a proxy URL uses that proxy. 409 when MAX_BROWSERS=0 and a "
+            "proxy is needed."
+        ),
     )
 
     @field_validator("siteurl")
@@ -47,7 +52,8 @@ class TurnstileSolveRequest(BaseModel):
 async def solve_turnstile(req: TurnstileSolveRequest) -> dict:
     started = time.monotonic()
     try:
-        proxy = normalize_proxy(req.proxy) if req.proxy else None
+        # Same egress rule as /fetch's browser: omitted -> default browser, "direct"/"off" -> server IP
+        proxy = resolve_proxy(req.proxy)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
@@ -72,7 +78,8 @@ async def solve_turnstile(req: TurnstileSolveRequest) -> dict:
         # true = minted ahead during a burst (still single-use and never handed to anyone else)
         "pooled": result["pooled"],
         "siteurl": req.siteurl,
-        "proxy": proxy,
+        # Egress actually used, credentials masked ("direct" when none)
+        "proxy": mask_proxy(proxy),
     }
 
 

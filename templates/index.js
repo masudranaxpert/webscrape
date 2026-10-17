@@ -1435,7 +1435,7 @@ if (tsForm) {
     }
     if (solverEnginePill) solverEnginePill.textContent = 'Engine: BROWSER';
     if (solverSitekeyPill) solverSitekeyPill.textContent = 'Sitekey: ' + (sitekey.length > 14 ? sitekey.substring(0, 10) + '...' : sitekey);
-    if (solverProxyPill) solverProxyPill.textContent = 'Proxy: ' + (proxy ? proxy.replace(/:[^:@]+@/, ':***@') : 'Direct');
+    if (solverProxyPill) solverProxyPill.textContent = 'Proxy: ' + (proxy ? proxy.replace(/:[^:@]+@/, ':***@') : 'Default');
     if (solverTimePill) {
       solverTimePill.className = 'metric-pill';
       solverTimePill.textContent = 'Latency: 0.0s';
@@ -1481,6 +1481,10 @@ if (tsForm) {
         data = { error: 'Invalid response from server', raw: rawText };
       }
       currentSolverData = data;
+      // The server reports the egress it actually used (credentials masked): default browser, direct or the proxy
+      if (solverProxyPill && data && typeof data.proxy === 'string') {
+        solverProxyPill.textContent = 'Proxy: ' + (data.proxy === 'direct' ? 'Direct' : data.proxy);
+      }
 
       if (solverRawJson) {
         solverRawJson.innerHTML = syntaxHighlight(data);

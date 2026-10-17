@@ -63,6 +63,8 @@ _TOKEN_TTL_SEC = 270.0
 # One token attempt before the page is reloaded; three failed attempts in a row fail the queue
 _MINT_ATTEMPT_SEC = 45.0
 _MAX_FAILED_ATTEMPTS = 3
+# How long a minter keeps its warm widget page after the last request (sequential callers reuse it)
+_WARM_KEEP_SEC = 60.0
 # A minter gives its browser tab back this often, so the worker can still be recycled under constant demand
 _MINTER_SESSION_SEC = 300.0
 # Demand window that sizes pre-minting
@@ -103,6 +105,8 @@ class _Minter:
         self.waiters: collections.deque[asyncio.Future] = collections.deque()
         self.demand: collections.deque[float] = collections.deque()
         self.tasks: set[asyncio.Task] = set()
+        # Set when a request queues, to wake a minter idling on its warm page
+        self.wakeup = asyncio.Event()
 
     # -- supply and demand -------------------------------------------------------------------------------------
 
@@ -175,7 +179,17 @@ class _Minter:
                 await self._open(page)
                 session_end = time.monotonic() + _MINTER_SESSION_SEC
                 failures = 0
-                while self.needs_tokens() and time.monotonic() < session_end:
+                used = False  # the widget's token was handed out: reset it before minting the next one
+                while time.monotonic() < session_end:
+                    if not self.needs_tokens():
+                        # Keep the warm page a little while: the next request skips the context, page load and
+                        # widget render and only waits for a reset. Give the tab back early if the pool is queuing
+                        if not await self._wait_for_demand():
+                            break
+                        continue
+                    if used:
+                        await bounded(page.evaluate(_RESET_JS))
+                        used = False
                     try:
                         token = await self._mint_one(page, worker)
                     except TimeoutError:
@@ -186,13 +200,27 @@ class _Minter:
                         continue
                     failures = 0
                     self.deliver(token)
-                    if self.needs_tokens():
-                        await bounded(page.evaluate(_RESET_JS))
+                    used = True
             finally:
                 try:
                     await asyncio.wait_for(context.close(), timeout=5.0)
                 except Exception:
                     pass
+
+    async def _wait_for_demand(self) -> bool:
+        """True when a new request arrived within _WARM_KEEP_SEC; False when the page should be closed (idle long
+        enough, or browser tabs are needed by queued requests)."""
+        deadline = time.monotonic() + _WARM_KEEP_SEC
+        self.wakeup.clear()
+        while time.monotonic() < deadline:
+            if pool.stats()["queued"]:
+                return False
+            try:
+                await asyncio.wait_for(self.wakeup.wait(), timeout=min(1.0, max(0.05, deadline - time.monotonic())))
+                return True
+            except asyncio.TimeoutError:
+                continue
+        return False
 
     async def _open(self, page) -> None:
         stub_body = _stub_html(self.sitekey)
@@ -277,6 +305,7 @@ async def solve(sitekey: str, siteurl: str, proxy: str | None = None, timeout: i
         )
     fut = asyncio.get_running_loop().create_future()
     minter.waiters.append(fut)
+    minter.wakeup.set()
     minter.ensure_minting()
     try:
         token = await asyncio.wait_for(fut, timeout=timeout)

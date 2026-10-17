@@ -39,6 +39,10 @@ already makes on-demand tokens fast (~2 s), so `TURNSTILE_PREFETCH=0` unless tra
 A Cloudflare interstitial is server-rendered and visible at load. Waiting a fixed 2.5 s on every browser fetch was
 most of its latency; clean pages now get a 0.6 s second look, walls still get a settle.
 
+### /solve-turnstile uses the default browser
+Measured on one sitekey: ~3.5 s per token through WARP with the licensed build and a warm page, 11–27 s through
+the keyless build on the server IP. Omitting `proxy` therefore means the default browser, the same rule as `/fetch`'s browser escalation.
+
 ### Same-sitekey minting is serialised
 Parallel solves of one sitekey from one IP make Cloudflare escalate difficulty.
 

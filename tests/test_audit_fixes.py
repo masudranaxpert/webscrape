@@ -122,10 +122,11 @@ def _fake_slot(worker):
 
 
 async def _settle():
+    # Real sleep: the fake_widget fixture makes asyncio.sleep instant, which would end this wait immediately
     for _ in range(50):
         if not any(m.tasks for m in turnstile._minters.values()):
             return
-        await asyncio.sleep(0.05)
+        await _real_sleep(0.05)
 
 
 @pytest.fixture
@@ -135,6 +136,7 @@ def fake_widget(monkeypatch):
 
     monkeypatch.setattr(turnstile.challenge, "click_turnstile_once", no_click)
     monkeypatch.setattr(turnstile.asyncio, "sleep", _fast_sleep)
+    monkeypatch.setattr(turnstile, "_WARM_KEEP_SEC", 0.05)
     turnstile._minters.clear()
 
     def install(tokens, error=None):
@@ -391,3 +393,19 @@ def test_binary_prune_keeps_current_keyless_pro_and_running_builds(tmp_path, mon
     assert report["pro"] == "154.0.0.1"
     assert seen_env["key_visible"] is False, "keyless ensure must not see the key (it would take the Pro path)"
     assert __import__("os").environ["CLOAKBROWSER_LICENSE_KEY"] == "cb_test_key", "key restored afterwards"
+
+
+async def test_sequential_requests_reuse_the_warm_widget_page(fake_widget, monkeypatch):
+    """A request arriving while the minter idles on its warm page is served by a reset, not a new context."""
+    monkeypatch.setattr(turnstile, "_WARM_KEEP_SEC", 2.0)
+    worker = fake_widget([f"tok-{i:02d}-xxxxxxxxxx" for i in range(10)])
+    first = await turnstile.solve("0xwarm", "https://example.com/", timeout=5)
+    await _real_sleep(0.2)  # the caller is gone; the minter keeps the page
+    second = await turnstile.solve("0xwarm", "https://example.com/", timeout=5)
+    assert first["token"] != second["token"]
+    assert worker.contexts == 1, "second request must reuse the warm page"
+    for _ in range(80):  # after _WARM_KEEP_SEC with no demand the page is closed and the minter forgotten
+        if not turnstile._minters:
+            break
+        await _real_sleep(0.05)
+    assert turnstile._minters == {}
