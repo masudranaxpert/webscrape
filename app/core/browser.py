@@ -23,6 +23,7 @@ from app.core.config import (
     BROWSER_JOB_OVERHEAD_SEC,
     BROWSER_QUEUE_TIMEOUT_SEC,
     BROWSER_HEADLESS,
+    BROWSER_IDLE_SHUTDOWN_SEC,
     BROWSER_MAX_LIFETIME_SEC,
     MAX_BROWSERS,
     MAX_TABS,
@@ -94,6 +95,11 @@ _SEAT_RETRIES = 2
 _SEAT_RETRY_DELAY_SEC = 2.5
 # Ceiling for one worker launch (GeoIP lookups + seat retries + Chromium start)
 _LAUNCH_TIMEOUT_SEC = 90.0
+# After the seat stayed busy through the retries, try the licensed build again only this often
+_SEAT_BUSY_RETRY_SEC = 300.0
+# Pool housekeeping: first run shortly after start (binaries prepared first), then this often
+_MAINTENANCE_FIRST_SEC = 5.0
+_MAINTENANCE_INTERVAL_SEC = 30.0
 # After an "invalid or expired" license answer, retry the licensed build only this often. Kept short: the free plan
 # reports a seat held by another machine the same way, and that clears on its own
 _LICENSE_DENIED_RETRY_SEC = 600.0
@@ -117,15 +123,18 @@ class BrowserPool:
         geoip: bool = BROWSER_GEOIP,
         licensed_lifetime_sec: int = BROWSER_LICENSED_LIFETIME_SEC,
         exit_ip_check_sec: float = BROWSER_EXIT_IP_CHECK_SEC,
+        idle_shutdown_sec: float = BROWSER_IDLE_SHUTDOWN_SEC,
     ) -> None:
         self._max_tabs = max_tabs
         self._headless = headless
         self._max_lifetime_sec = max_lifetime_sec
-        # Bounds concurrent PROXIED browsers; the direct licensed PRO browser lives outside this budget.
+        # Bounds concurrent proxy browsers only; the default (WARP or direct) and direct browsers are outside it.
         self._max_browsers = max_browsers
         self._geoip = geoip
         self._licensed_lifetime_sec = licensed_lifetime_sec
         self._exit_ip_check_sec = exit_ip_check_sec
+        # Browsers other than the default one are closed after this long without a tab (0 = never)
+        self._idle_shutdown_sec = idle_shutdown_sec
         self._cond: asyncio.Condition | None = None
         self._workers: dict[str, _Worker] = {}
         self._waiting: dict[str, int] = {}
@@ -149,6 +158,7 @@ class BrowserPool:
         from app.core import binaries
 
         self._binaries_task = asyncio.create_task(binaries.run(self._launch_lock))
+        self._maintenance_task = asyncio.create_task(self._maintenance_loop())
 
         loop_module = type(asyncio.get_running_loop()).__module__
         if loop_module.startswith("uvloop"):
@@ -264,6 +274,10 @@ class BrowserPool:
         err_msg = str(last_err).lower()
         if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
             logger.warning("CloakBrowser license failure (%s); falling back to unauthenticated engine", redact(str(last_err)))
+            if "session limit" in err_msg:
+                # The seat is held elsewhere even after the retries: try it again in a few minutes, not on every
+                # launch (the warm-keeping maintenance would otherwise relaunch the default browser each minute)
+                self._license_denied_until = time.monotonic() + _SEAT_BUSY_RETRY_SEC
             if "invalid or expired" in err_msg:
                 # A dead key stays dead: stop re-validating it on every launch and recycling the keyless fallback
                 # after a minute to retry the seat (that churn costs a cold Cloudflare clearance each time)
@@ -379,17 +393,21 @@ class BrowserPool:
     async def _acquire(self, proxy: str | None, deadline: float, payload_bytes: int = 0) -> _Worker:
         """Reserve a tab for this egress identity, launching or evicting processes as needed.
 
-        Waits are bounded by `deadline`; MAX_BROWSERS bounds proxied browsers only; proxied waiters charge
-        `payload_bytes` against PROXY_QUEUE_BYTE_LIMIT so a request flood cannot buffer unbounded memory.
+        Waits are bounded by `deadline`. MAX_BROWSERS bounds the *extra* proxy browsers only: the default browser
+        (WARP when set, else direct) and the direct browser are outside it, and the default is never evicted.
+        Proxied waiters charge `payload_bytes` against PROXY_QUEUE_BYTE_LIMIT so a flood cannot buffer unbounded
+        memory.
         """
         if self._cond is None:
             self._cond = asyncio.Condition()
-        if proxy is not None and self._max_browsers == 0:
+        key = proxy_key(proxy)
+        default_key = proxy_key(self._default_proxy())
+        bounded = proxy is not None and key != default_key
+        if bounded and self._max_browsers == 0:
             raise ProxySolvingDisabled(
-                "Proxy solving is disabled on this server (MAX_BROWSERS=0): no proxy browser may be opened. "
+                "Proxy browsers are disabled on this server (MAX_BROWSERS=0). "
                 "Send the request without a proxy field, or with proxy='direct'."
             )
-        key = proxy_key(proxy)
         async with self._cond:
             while True:
                 worker = self._workers.get(key)
@@ -405,11 +423,14 @@ class BrowserPool:
                 if worker is not None:
                     self._schedule_exit_ip_probe(worker)
 
-                proxied_workers = [w for w in self._workers.values() if w.proxy is not None]
+                # Extra proxy browsers: everything proxied except the default (WARP) browser
+                extra_workers = [w for w in self._workers.values() if w.proxy is not None and w.key != default_key]
                 # A launch in flight holds its process slot and one tab, so nothing over-commits while it runs
-                proxied_count = len(proxied_workers) + sum(1 for p in self._launching.values() if p is not None)
-                # Only proxied traffic is bounded by MAX_BROWSERS; the direct licensed browser always fits.
-                full = proxy is not None and proxied_count >= self._max_browsers
+                proxied_count = len(extra_workers) + sum(
+                    1 for k, p in self._launching.items() if p is not None and k != default_key
+                )
+                # Only extra proxy browsers are bounded by MAX_BROWSERS; the default and direct browsers always fit
+                full = bounded and proxied_count >= self._max_browsers
                 tabs_used = sum(w.active for w in self._workers.values()) + len(self._launching)
                 tabs_free = tabs_used < self._max_tabs
                 launching = key in self._launching
@@ -426,10 +447,10 @@ class BrowserPool:
                         self._launching[key] = proxy
                         break  # launch outside the lock (below)
                 else:
-                    idle = [w for w in proxied_workers if w.active == 0]
+                    idle = [w for w in extra_workers if w.active == 0]
                     if idle:
-                        # Evict the least recently used idle proxied browser to make room for the new identity;
-                        # the direct licensed browser is never a victim.
+                        # Evict the least recently used idle extra proxy browser to make room for the new identity;
+                        # the default browser is never a victim.
                         victim = min(idle, key=lambda w: w.last_used)
                         logger.info("Proxy browser slots full: closing idle worker for %s to serve %s", mask_proxy(victim.proxy), mask_proxy(proxy))
                         del self._workers[victim.key]
@@ -491,6 +512,60 @@ class BrowserPool:
                 self._cond.notify_all()
         return worker
 
+    @staticmethod
+    def _default_proxy() -> str | None:
+        """Egress of the default browser: WARP when WARP_PROXY is set, else direct (None)."""
+        from app.core.proxy import resolve_proxy
+
+        return resolve_proxy(None)
+
+    async def maintain_once(self) -> None:
+        """Close browsers nobody used for BROWSER_IDLE_SHUTDOWN_SEC (never the default one), and keep the default
+        browser launched and fresh so requests do not pay for a cold start or a lifetime recycle."""
+        if self._cond is None:
+            self._cond = asyncio.Condition()
+        default_proxy = self._default_proxy()
+        default_key = proxy_key(default_proxy)
+        now = time.monotonic()
+        async with self._cond:
+            closed = False
+            if self._idle_shutdown_sec:
+                for key, worker in list(self._workers.items()):
+                    if key == default_key or worker.active or now - worker.last_used < self._idle_shutdown_sec:
+                        continue
+                    logger.info(
+                        "Closing idle browser for %s (no tab for %.0fs)", mask_proxy(worker.proxy), now - worker.last_used
+                    )
+                    del self._workers[key]
+                    self._close_in_background(worker.browser)
+                    closed = True
+            if closed:
+                self._cond.notify_all()
+            default = self._workers.get(default_key)
+            needs_warm = default_key not in self._launching and (
+                default is None or (not default.active and self._is_stale(default))
+            )
+            # Never compete with real requests for a slot (the default is outside MAX_BROWSERS, so it never needs
+            # to evict anything)
+            needs_warm = needs_warm and not self._waiting
+        if not needs_warm:
+            return
+        try:
+            # Acquiring a tab launches the browser, or recycles a stale one; releasing it leaves the process warm
+            async with self.slot(default_proxy, time.monotonic() + 5.0):
+                pass
+        except Exception as err:
+            logger.info("Default browser warm-up skipped: %s", redact(str(err)))
+
+    async def _maintenance_loop(self) -> None:
+        await asyncio.sleep(_MAINTENANCE_FIRST_SEC)
+        while True:
+            try:
+                await self.maintain_once()
+            except Exception as err:  # never let housekeeping die
+                logger.warning("Browser pool maintenance failed: %s", redact(str(err)))
+            await asyncio.sleep(_MAINTENANCE_INTERVAL_SEC)
+
     def _close_in_background(self, browser: Any) -> None:
         """Close a retired process without holding the pool lock (a wedged close takes up to 5s + kill)."""
         task = asyncio.create_task(self._close_browser_safely(browser))
@@ -534,8 +609,9 @@ class BrowserPool:
             self._cond = asyncio.Condition()
         for task in list(self._probes.values()):
             task.cancel()
-        if getattr(self, "_binaries_task", None):
-            self._binaries_task.cancel()
+        for name in ("_binaries_task", "_maintenance_task"):
+            if getattr(self, name, None):
+                getattr(self, name).cancel()
         async with self._cond:
             workers = list(self._workers.values())
             self._workers.clear()

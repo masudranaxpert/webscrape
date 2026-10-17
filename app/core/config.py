@@ -24,8 +24,12 @@ MAX_CACHED_SESSIONS: int = int(os.getenv("MAX_CACHED_SESSIONS", "256"))
 DEFAULT_SESSION_TTL: int = int(os.getenv("DEFAULT_SESSION_TTL", "600"))
 BROWSER_HEADLESS: bool = os.getenv("BROWSER_HEADLESS", "false").strip().lower() in ("true", "1", "yes")
 BROWSER_MAX_LIFETIME_SEC: int = int(os.getenv("BROWSER_MAX_LIFETIME_SEC", "300"))
+# Close a browser other than the default one after this many seconds without a tab (0 = keep it); the default browser
+# (WARP when set, else direct) is never closed and is kept launched in the background
+BROWSER_IDLE_SHUTDOWN_SEC: float = float(os.getenv("BROWSER_IDLE_SHUTDOWN_SEC", "600"))
 
-# Max concurrent PROXIED browsers; 0 = proxy solving off
+# Max proxy browsers (requests with a proxy URL) at once; the default (WARP) and direct browsers are not counted.
+# 0 = proxy browsers off (409)
 MAX_BROWSERS: int = max(0, int(os.getenv("MAX_BROWSERS", "1")))
 # Binary/oversized bodies are not read: status, headers and the final URL are returned instead
 MAX_RESPONSE_MB: float = float(os.getenv("MAX_RESPONSE_MB", "16"))

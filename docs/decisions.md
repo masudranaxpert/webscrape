@@ -43,6 +43,11 @@ most of its latency; clean pages now get a 0.6 s second look, walls still get a 
 Measured on one sitekey: ~3.5 s per token through WARP with the licensed build and a warm page, 11–27 s through
 the keyless build on the server IP. Omitting `proxy` therefore means the default browser, the same rule as `/fetch`'s browser escalation.
 
+### The default browser is always warm; other browsers close when idle
+The default browser serves most escalations and every Turnstile solve, so its ~3 s cold start is paid in the
+background instead of by a request. Extra browsers (direct while WARP is the default, proxies) are occasional; each
+holds ~400 MB, so they are closed after 10 min without a tab.
+
 ### Same-sitekey minting is serialised
 Parallel solves of one sitekey from one IP make Cloudflare escalate difficulty.
 

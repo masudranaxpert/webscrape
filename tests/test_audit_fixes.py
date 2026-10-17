@@ -409,3 +409,136 @@ async def test_sequential_requests_reuse_the_warm_widget_page(fake_widget, monke
             break
         await _real_sleep(0.05)
     assert turnstile._minters == {}
+
+
+async def test_maintenance_closes_idle_extra_browsers_and_keeps_default_warm(monkeypatch):
+    import app.core.config as config_mod
+    import app.core.proxy as proxy_mod
+    from app.core.browser import BrowserPool, _Worker
+
+    class _B:
+        def __init__(self):
+            self.closed = False
+
+        def is_connected(self):
+            return not self.closed
+
+        async def close(self):
+            self.closed = True
+
+    launched = []
+
+    async def fake_launch(key, proxy):
+        launched.append(proxy)
+        now = time.monotonic()
+        return _Worker(key=key, proxy=proxy, browser=_B(), created_at=now, last_used=now, licensed=proxy == warp)
+
+    warp = "http://warp:8080"
+    monkeypatch.setattr(proxy_mod, "_DEFAULT_EGRESS", warp)
+    monkeypatch.setattr(config_mod, "WARP_PROXY", warp)
+    pool = BrowserPool(max_tabs=5, headless=True, max_browsers=2, geoip=False, idle_shutdown_sec=600)
+    pool._launch_worker = fake_launch
+
+    # Nothing running yet: maintenance launches the default (WARP) browser in the background
+    await pool.maintain_once()
+    assert launched == [warp] and pool.stats()["browsers"] == 1 and pool.stats()["active_tabs"] == 0
+
+    # A direct and a proxy browser get used once, then sit idle past the limit
+    for px in (None, "http://p.example:1"):
+        w = await pool._acquire(px, time.monotonic() + 5)
+        await pool._release(w)
+    for w in pool._workers.values():
+        w.last_used -= 601
+    extra = [w.browser for w in pool._workers.values() if w.proxy != warp]
+    await pool.maintain_once()
+    await asyncio.gather(*pool._closing)
+    assert list(pool._workers) == [proxy_mod.proxy_key(warp)], "only the default browser survives idling"
+    assert all(b.closed for b in extra)
+
+    # A browser with an open tab is never closed, however old its last release
+    busy = await pool._acquire(None, time.monotonic() + 5)
+    busy.last_used -= 10_000
+    await pool.maintain_once()
+    assert proxy_mod.proxy_key(None) in pool._workers
+    await pool._release(busy)
+
+    # The default browser past its lifetime is recycled ahead of the next request
+    default = pool._workers[proxy_mod.proxy_key(warp)]
+    default.created_at -= 10_000
+    await pool.maintain_once()
+    await asyncio.gather(*pool._closing)
+    assert pool._workers[proxy_mod.proxy_key(warp)] is not default and default.browser.closed
+    assert launched.count(warp) == 2
+
+
+async def test_maintenance_never_competes_with_queued_requests(monkeypatch):
+    import app.core.proxy as proxy_mod
+    from app.core.browser import BrowserPool
+
+    monkeypatch.setattr(proxy_mod, "_DEFAULT_EGRESS", None)
+    pool = BrowserPool(max_tabs=1, headless=True, max_browsers=1, geoip=False)
+    calls = []
+
+    async def fake_launch(key, proxy):
+        calls.append(proxy)
+        raise AssertionError("must not launch while requests are queued")
+
+    pool._launch_worker = fake_launch
+    pool._waiting["px-someone"] = 1
+    await pool.maintain_once()
+    assert calls == []
+
+
+async def test_default_browser_is_outside_max_browsers_and_never_evicted(monkeypatch):
+    """MAX_BROWSERS counts extra proxy browsers only: with WARP as the default, a proxy request opens next to it,
+    WARP is never closed, and MAX_BROWSERS=0 still lets the default work."""
+    import app.core.config as config_mod
+    import app.core.proxy as proxy_mod
+    from app.core.browser import BrowserPool, ProxySolvingDisabled, _Worker
+
+    class _B:
+        closed = False
+
+        def is_connected(self):
+            return not self.closed
+
+        async def close(self):
+            self.closed = True
+
+    launched = []
+
+    async def fake_launch(key, proxy):
+        launched.append(proxy)
+        now = time.monotonic()
+        return _Worker(key=key, proxy=proxy, browser=_B(), created_at=now, last_used=now)
+
+    warp = "http://warp:8080"
+    warp_key = proxy_mod.proxy_key(warp)
+    monkeypatch.setattr(proxy_mod, "_DEFAULT_EGRESS", warp)
+    monkeypatch.setattr(config_mod, "WARP_PROXY", warp)
+    pool = BrowserPool(max_tabs=5, headless=True, max_browsers=1, geoip=False, idle_shutdown_sec=600)
+    pool._launch_worker = fake_launch
+
+    await pool.maintain_once()                                     # WARP warm
+    warp_browser = pool._workers[warp_key].browser
+    for px in ("http://p.example:1", None, "http://q.example:2"):  # proxy, direct, another proxy
+        w = await pool._acquire(px, time.monotonic() + 5)
+        await pool._release(w)
+    await asyncio.gather(*pool._closing)
+    assert not warp_browser.closed and warp_key in pool._workers, "the default browser is never evicted"
+    keys = set(pool._workers)
+    assert proxy_mod.proxy_key("http://q.example:2") in keys and proxy_mod.proxy_key(None) in keys
+    assert proxy_mod.proxy_key("http://p.example:1") not in keys, "the second proxy replaced the first (limit 1)"
+
+    for w in pool._workers.values():
+        w.last_used -= 601
+    await pool.maintain_once()                                     # extras idle out, WARP stays
+    await asyncio.gather(*pool._closing)
+    assert list(pool._workers) == [warp_key] and not warp_browser.closed
+
+    zero = BrowserPool(max_tabs=5, headless=True, max_browsers=0, geoip=False)
+    zero._launch_worker = fake_launch
+    w = await zero._acquire(warp, time.monotonic() + 5)            # the default works with MAX_BROWSERS=0
+    await zero._release(w)
+    with pytest.raises(ProxySolvingDisabled):
+        await zero._acquire("http://p.example:1", time.monotonic() + 5)

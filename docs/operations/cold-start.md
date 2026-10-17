@@ -31,6 +31,8 @@ Inside the app:
 | A page call stalls > `BROWSER_CALL_TIMEOUT_SEC` | Process poisoned, replaced when its tabs finish |
 | A browser job exceeds `cf_wait + BROWSER_JOB_OVERHEAD_SEC` | Cancelled (504), process poisoned |
 | A launch hangs | Abandoned after 90 s, its reservation freed |
+| The default browser dies or ages out | Relaunched in the background within 30 s, before a request needs it |
+| An extra browser (direct or proxy) sits unused | Closed after 10 min without a tab, freeing its memory |
 | `browser.close()` hangs | Driver killed after 5 s; Chromium exits with its pipe |
 | Proxy exit IP changes | Process retired, that identity's clearances dropped |
 | Disconnected browser | Detected on the next acquire and replaced |

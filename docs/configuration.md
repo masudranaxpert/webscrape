@@ -27,7 +27,8 @@ setting stops the app at start-up.
 | `BROWSER_HEADLESS` | `false` | `browser.py` | Headed Chromium in Xvfb is harder to detect. Only `true/1/yes` switches to headless |
 | `BROWSER_GEOIP` | `true` | `browser.py` | Match timezone, locale and WebRTC IP to the exit IP |
 | `MAX_TABS` | `5` | `browser.py` | Tabs open at once across all browsers. See [Benchmark](operations/benchmark.md) before raising |
-| `MAX_BROWSERS` | `1` | `browser.py` | Max proxied Chromium processes (WARP counts as proxied). `0` = proxied solving off (409) |
+| `MAX_BROWSERS` | `1` | `browser.py` | Max **proxy** browsers (requests with a proxy URL) at once. The default (WARP) and direct browsers are never counted or closed for it. `0` = proxy browsers off (409) |
+| `BROWSER_IDLE_SHUTDOWN_SEC` | `600` | `browser.py` | Close a browser other than the default one after this long without a tab (frees ~400 MB each). The default browser is never closed and is kept launched. `0` = never close |
 | `BROWSER_MAX_LIFETIME_SEC` | `300` | `browser.py` | Idle age after which a keyless process is recycled (frees memory, drops HTTP cache) |
 | `BROWSER_LICENSED_LIFETIME_SEC` | `3600` | `browser.py` | Same for the licensed seat holder (relaunching it costs a seat round-trip and a cold clearance) |
 | `BROWSER_EXIT_IP_CHECK_SEC` | `60` | `browser.py` | How often a proxied process re-checks its exit IP |

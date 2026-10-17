@@ -30,12 +30,35 @@ everywhere.**
 Why only one candidate: when two browsers both tried for the single seat, the second spent ~9 s per launch in
 "session limit" retries and ended up keyless anyway.
 
+## Lifecycle
+
+| Browser | Started | Closed |
+| --- | --- | --- |
+| Default (WARP when set, else direct) | At server start, in the background; relaunched in the background after a crash or when its lifetime ends | Never |
+| Any other (direct while WARP is set, each proxy) | On the first request that needs it | After `BROWSER_IDLE_SHUTDOWN_SEC` (10 min) without a tab, or when `MAX_BROWSERS` needs its slot |
+
+## `MAX_BROWSERS`: proxy browsers only
+
+`MAX_BROWSERS` is the number of **proxy browsers** (requests that send a proxy URL) that may run at once. It has no
+effect on the default browser or the direct browser: those are never counted, never refused and the default is
+never closed.
+
+| Browser | Counts toward `MAX_BROWSERS`? | Can be closed to make room? |
+| --- | --- | --- |
+| Default (WARP when set, else direct) | No | Never |
+| Direct (when WARP is the default) | No | No (closes only after 10 min idle) |
+| Each proxy URL | **Yes** | Yes, the least recently used idle one, when a new proxy needs the slot |
+
+With `MAX_BROWSERS=1`, one proxy browser runs next to the default (and direct); a second, different proxy replaces
+the first if it is idle, or waits. `MAX_BROWSERS=0` disables proxy browsers (409) while the default and direct keep
+working. Each proxy browser costs ~400 MB.
+
 ## What happens when the seat is not available
 
 | Situation | Behaviour |
 | --- | --- |
 | Seat held by a just-closed process | Two retries 2.5 s apart (the license server needs a moment to free it) |
-| Seat busy for longer (another machine, a local run with the same key) | Launches keyless; that process is recycled after ~1 min idle to try the seat again |
+| Seat busy for longer (another machine, a local run with the same key) | Launches keyless; the licensed build is tried again after 5 min |
 | Server says "invalid or expired" | Keyless; the licensed build is not tried again for 10 min (the free plan reports a seat busy elsewhere this way too) |
 | License server unreachable | Keyless |
 

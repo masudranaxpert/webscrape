@@ -64,21 +64,26 @@ Key properties:
 ```mermaid
 flowchart LR
     subgraph Pool["BrowserPool (MAX_TABS tabs in total)"]
-      D["direct Chromium<br/>(licensed seat if key valid)"]
-      X["proxied Chromium(s)<br/>≤ MAX_BROWSERS"]
+      D["default Chromium: WARP or direct<br/>(licensed seat, never closed)"]
+      X["proxy Chromium(s)<br/>≤ MAX_BROWSERS"]
     end
-    R1[direct requests] --> D
-    R2[WARP / proxy requests] --> X
+    R1[no proxy field] --> D
+    R2[proxy URL] --> X
 ```
 
 - **One Chromium process per egress identity** (direct, WARP, or each distinct proxy). CloakBrowser applies proxy,
   timezone, locale and WebRTC IP per process, so a process can only ever represent one IP.
-- **`MAX_TABS`** caps open tabs across all processes. **`MAX_BROWSERS`** caps *proxied* processes (WARP counts as
-  proxied); the direct browser is outside that budget. When full, the least recently used idle proxied process is
-  evicted.
+- **`MAX_TABS`** caps open tabs across all processes. **`MAX_BROWSERS`** caps *proxy* browsers only (requests with a
+  proxy URL); the default (WARP) and direct browsers are outside it and the default is never evicted. When full, the
+  least recently used idle proxy browser is evicted.
 - **Launches and closes never hold the pool lock.** A dead proxy's launch (GeoIP lookups time out through it) cannot
   freeze other identities. A launch has a 90 s ceiling; a close that does not finish in 5 s kills the Playwright driver
   (Chromium exits with its debugging pipe, so nothing is orphaned).
+- **Default browser always warm, others closed when idle.** A housekeeping pass every 30 s keeps the default
+  browser (WARP when set, else direct) launched, and replaces it in the background once it passes its lifetime or
+  dies, so requests never pay for its cold start. Any other browser (direct while WARP is the default, or a proxy)
+  is closed after `BROWSER_IDLE_SHUTDOWN_SEC` (10 min) without a tab; the next request for it launches a new one
+  (~3 s). The pass never runs while requests are queuing.
 - **Recycling.** Keyless processes are replaced after `BROWSER_MAX_LIFETIME_SEC` idle age, the licensed seat holder
   after `BROWSER_LICENSED_LIFETIME_SEC`. A process whose page call stalls past `BROWSER_CALL_TIMEOUT_SEC` is
   **poisoned**: it takes no new tabs and is replaced once its open tabs finish.
