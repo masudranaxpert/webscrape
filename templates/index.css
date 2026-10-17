@@ -1929,6 +1929,35 @@ footer {
   justify-content: space-between;
 }
 
+.cfg-payload-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-mini-payload {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.btn-mini-payload:hover {
+  background: var(--accent-orange);
+  color: #ffffff;
+  border-color: var(--accent-orange);
+}
+
+.btn-mini-payload:active {
+  transform: scale(0.96);
+}
+
 .btn-add-kv {
   background: transparent;
   border: 1px dashed var(--border-subtle);

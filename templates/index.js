@@ -218,6 +218,7 @@ function checkActiveConfigState() {
   const turnstileToken = document.getElementById('cfgTurnstileToken')?.value.trim() || '';
   const waitSel = document.getElementById('cfgWaitForSelector')?.value.trim() || '';
   const clickSel = document.getElementById('cfgClickSelector')?.value.trim() || '';
+  const cookieAllowlist = document.getElementById('cfgCookieAllowlist')?.value.trim() || '';
   const extractSel = document.getElementById('selectorsKvContainer')?.querySelectorAll('.kv-row').length || 0;
   const customCookies = document.getElementById('cookiesKvContainer')?.querySelectorAll('.kv-row').length || 0;
   const customHeaders = document.getElementById('headersKvContainer')?.querySelectorAll('.kv-row').length || 0;
@@ -233,6 +234,7 @@ function checkActiveConfigState() {
     turnstileToken !== '' ||
     waitSel !== '' ||
     clickSel !== '' ||
+    cookieAllowlist !== '' ||
     extractSel > 0 ||
     customCookies > 0 ||
     customHeaders > 0
@@ -241,7 +243,7 @@ function checkActiveConfigState() {
   dot.style.display = isCustom ? 'inline-block' : 'none';
 }
 
-['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgFollowRedirects', 'cfgProxy', 'cfgUserAgent', 'cfgUa', 'cfgBody', 'cfgWaitForSelector', 'cfgClickSelector'].forEach(id => {
+['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgFollowRedirects', 'cfgProxy', 'cfgUserAgent', 'cfgUa', 'cfgBody', 'cfgWaitForSelector', 'cfgClickSelector', 'cfgCookieAllowlist'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
     el.addEventListener('input', checkActiveConfigState);
@@ -372,9 +374,33 @@ if (btnAddCookieRow) {
   });
 }
 
+// Payload Helper Buttons (JSON, Form-URL, Clear)
+const btnPayloadJson = document.getElementById('btnPayloadJson');
+const btnPayloadForm = document.getElementById('btnPayloadForm');
+const btnPayloadClear = document.getElementById('btnPayloadClear');
+const cfgBody = document.getElementById('cfgBody');
+
+if (btnPayloadJson && cfgBody) {
+  btnPayloadJson.addEventListener('click', () => {
+    cfgBody.value = JSON.stringify({ key: "value", sample: 123 }, null, 2);
+    checkActiveConfigState();
+  });
+}
+if (btnPayloadForm && cfgBody) {
+  btnPayloadForm.addEventListener('click', () => {
+    cfgBody.value = "key=value&sample=123";
+    checkActiveConfigState();
+  });
+}
+if (btnPayloadClear && cfgBody) {
+  btnPayloadClear.addEventListener('click', () => {
+    cfgBody.value = "";
+    checkActiveConfigState();
+  });
+}
+
 // Format JSON Body
 const btnFormatBodyJson = document.getElementById('btnFormatBodyJson');
-const cfgBody = document.getElementById('cfgBody');
 if (btnFormatBodyJson && cfgBody) {
   btnFormatBodyJson.addEventListener('click', () => {
     const text = cfgBody.value.trim();
@@ -654,6 +680,7 @@ fetchForm.addEventListener('submit', async (e) => {
   const sessionId = document.getElementById('cfgSessionId').value.trim();
   const cookieTtl = parseInt(document.getElementById('cfgCookieTtl').value, 10) || 86400;
   const cookieLimit = parseInt(document.getElementById('cfgCookieLimit').value, 10) || 35;
+  const cookieAllowlistRaw = document.getElementById('cfgCookieAllowlist')?.value.trim() || '';
 
   const payload = {
     url: url,
@@ -675,6 +702,11 @@ fetchForm.addEventListener('submit', async (e) => {
   if (Object.keys(customHeaders).length > 0) payload.headers = customHeaders;
   if (Object.keys(customCookies).length > 0) payload.inject_cookies = customCookies;
   if (['POST', 'PUT', 'PATCH'].includes(method) && bodyText) payload.body = bodyText;
+
+  if (cookieAllowlistRaw) {
+    const list = cookieAllowlistRaw.split(',').map(s => s.trim()).filter(Boolean);
+    if (list.length > 0) payload.cookie_allowlist = list;
+  }
 
   if (waitForSelector) payload.wait_for_selector = waitForSelector;
   if (clickSelector) payload.click_selector = clickSelector;

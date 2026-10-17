@@ -291,6 +291,13 @@
                 </div>
                 <div class="cfg-grid-1" style="margin-top:16px;">
                   <div class="cfg-field">
+                    <label class="cfg-label">Cookie Allowlist Patterns (<code>cookie_allowlist</code>)</label>
+                    <input type="text" id="cfgCookieAllowlist" class="cfg-input" placeholder="e.g. cf_*, __cf*, *session*, PHPSESSID (comma-separated; blank = default built-in list)" />
+                    <span class="cfg-hint">Only cookies matching these wildcard/glob patterns are saved to cache and sent to origin.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-1" style="margin-top:16px;">
+                  <div class="cfg-field">
                     <div class="cfg-col-header">
                       <label class="cfg-label" style="margin:0;">Custom Session Cookies Injection (<code>inject_cookies</code>)</label>
                       <button type="button" class="btn-add-kv" id="btnAddCookieRow">+ Add Cookie</button>
