@@ -112,6 +112,17 @@ class FetchRequest(BaseModel):
         ),
         examples=[False],
     )
+    follow_redirects: bool = Field(
+        default=True,
+        description=(
+            "false = stop at the target's first response and do not follow redirects: `status_code` is the 3xx, "
+            "`redirect_url` holds the absolute `Location` (or a Refresh target), and the download/next page is never "
+            "requested. If Cloudflare challenges the URL, the browser only clears the challenge on the site's root "
+            "page (it never opens the target URL), then the HTTP engine reads the target's first response with that "
+            "clearance. Cannot be combined with `click_selector` or `wait_for_selector`."
+        ),
+        examples=[True],
+    )
     cf_wait: float = Field(
         default=25.0,
         ge=1.0,
@@ -294,6 +305,11 @@ class FetchRequest(BaseModel):
     def check_engine_flags(self) -> "FetchRequest":
         if self.force_http and (self.force_browser or self.click_selector):
             raise ValueError("force_http cannot be combined with force_browser or click_selector")
+        if not self.follow_redirects and (self.click_selector or self.wait_for_selector):
+            raise ValueError(
+                "follow_redirects=false cannot be combined with click_selector or wait_for_selector: both need the "
+                "browser to open the page, and the browser always follows redirects"
+            )
         return self
 
 
@@ -327,6 +343,14 @@ class FetchResponse(BaseModel):
             "turns into a file download the file itself is never fetched, only this URL is returned."
         ),
         examples=["https://example.com/items"],
+    )
+    redirect_url: str | None = Field(
+        default=None,
+        description=(
+            "Where the response points but was not followed: the absolute `Location` of a 3xx answered with "
+            "`follow_redirects=false`, or a Refresh target. Null otherwise."
+        ),
+        examples=[None],
     )
     redirect_chain: list[RedirectHop] | None = Field(
         default=None,

@@ -44,6 +44,8 @@ class FetcherResult:
     note: str | None = None
     # Every hop of a redirect chain: {"url", "status", "location"}; empty when there was no redirect
     redirect_chain: list[dict] = dataclasses.field(default_factory=list)
+    # Where the response points but was not followed: a 3xx Location (no-follow mode) or a Refresh target
+    redirect_url: str | None = None
 
 
 def _is_cf_wall(status: int, body: str, headers: dict[str, str] | None = None) -> bool:
@@ -208,11 +210,12 @@ _MAX_REDIRECTS = 10
 
 
 async def _request(tracker: "_NativeTracker", session, *, method: str, url: str, headers: dict, payload,
-                   cookies: dict, timeout: int, max_bytes: int):
+                   cookies: dict, timeout: int, max_bytes: int, follow_redirects: bool = True):
     """Send the request as a stream, look at the headers, and read the body only if it is small, non-binary text.
 
     httpcloak's stream API does not follow redirects, so they are followed here, hop by hop, without reading any
     redirect body (browser rules: 301/302/303 turn a POST into a GET, 307/308 keep the method).
+    With follow_redirects=False the first response is returned as-is (a 3xx keeps its Location in the chain).
     Returns (response, body_bytes, note, redirect_chain). `note` is set when the body was skipped or cut at the cap;
     the chain lists every hop (empty when there was no redirect).
     Every native call is shielded and tracked, so a timeout never frees memory under a running goroutine.
@@ -250,7 +253,7 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
             "status": stream.status_code,
             "location": urljoin(current_url, location) if location and stream.status_code in _REDIRECT_STATUSES else None,
         })
-        if stream.status_code in _REDIRECT_STATUSES and location and hop < _MAX_REDIRECTS:
+        if follow_redirects and stream.status_code in _REDIRECT_STATUSES and location and hop < _MAX_REDIRECTS:
             if forbidden_target(urlparse(urljoin(current_url, location)).hostname):
                 # A public URL redirecting into the server's own network: hand back the redirect, never follow it
                 logger.warning("httpcloak: %s redirects to an internal host; not following", current_url)
@@ -266,7 +269,7 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
     reason = _skip_reason(current_method, flat, declared, max_bytes)
     if reason:
         logger.info("httpcloak: %s -> %s; body not read (status %s)", current_url, reason, stream.status_code)
-        return stream, b"", reason, (chain if len(chain) > 1 else [])
+        return stream, b"", reason, _chain_result(chain)
 
     reader = asyncio.ensure_future(asyncio.to_thread(_read_capped, stream, max_bytes))
     tracker.watch(reader)
@@ -278,11 +281,16 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
             f"'{_header(flat, 'content-type') or 'none'}'; not read"
         )
         logger.info("httpcloak: %s -> %s", current_url, reason)
-        return stream, b"", reason, (chain if len(chain) > 1 else [])
+        return stream, b"", reason, _chain_result(chain)
     note = f"body cut at {max_bytes / 1048576:.0f} MB limit" if capped else None
     if capped:
         logger.warning("httpcloak: %s -> %s", current_url, note)
-    return stream, data, note, (chain if len(chain) > 1 else [])
+    return stream, data, note, _chain_result(chain)
+
+
+def _chain_result(chain: list[dict]) -> list[dict]:
+    """The chain is reported when there was a hop, or when the response stopped on a redirect (no-follow mode)."""
+    return chain if len(chain) > 1 or (chain and chain[-1]["location"]) else []
 
 
 def _sanitize_http_version(http_version: str | None) -> str | None:
@@ -302,6 +310,7 @@ async def httpcloak_fetch(
     proxy: str | None = None,
     http_version: str | None = None,
     timeout: int = 30,
+    follow_redirects: bool = True,
     _redirect_depth: int = 0,
 ) -> FetcherResult:
     """Execute stealth HTTP request with full browser wire fingerprint."""
@@ -360,6 +369,7 @@ async def httpcloak_fetch(
             resp, data, note, chain = await _request(
                 tracker, session, method=method.upper(), url=url, headers=req_headers, payload=payload,
                 cookies=cookies or {}, timeout=int(timeout), max_bytes=int(MAX_RESPONSE_MB * 1024 * 1024),
+                follow_redirects=follow_redirects,
             )
         except asyncio.TimeoutError:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -412,6 +422,7 @@ async def httpcloak_fetch(
         wall = _is_cf_wall(status, body_text, flat_headers)
 
         # WHATWG / Scrapy compliant Meta & Header Refresh handling
+        refresh_url: str | None = None
         if _redirect_depth < 5 and not wall:
             refresh_target = None
             refresh_hdr = next((v for k, v in flat_headers.items() if k.lower() == "refresh"), None)
@@ -436,7 +447,10 @@ async def httpcloak_fetch(
             if refresh_target:
                 current_url = getattr(resp, "final_url", url) or url
                 redirect_target = urljoin(current_url, refresh_target)
-                if redirect_target != current_url and redirect_target.startswith(("http://", "https://")) \
+                if not follow_redirects:
+                    # No-follow mode: report where the page points, never go there
+                    refresh_url = redirect_target
+                elif redirect_target != current_url and redirect_target.startswith(("http://", "https://")) \
                         and not forbidden_target(urlparse(redirect_target).hostname):
                     logger.info(
                         "Following Refresh redirect (depth=%d): %s -> %s",
@@ -488,6 +502,7 @@ async def httpcloak_fetch(
             truncated=note is not None,
             note=note,
             redirect_chain=chain,
+            redirect_url=(chain[-1]["location"] if chain and chain[-1]["location"] else refresh_url),
         )
     finally:
         tracker.release()

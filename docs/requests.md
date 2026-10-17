@@ -101,6 +101,15 @@ curl -X POST https://your-domain.example/fetch \
 {"url": "https://example.com/download/123", "click_selector": "button#download", "cf_wait": 40}
 ```
 
+**Get the redirect target without following it** (download links).
+
+```json
+{"url": "https://example.com/get/42", "follow_redirects": false}
+```
+
+The answer has `status_code: 302` and `redirect_url` with the full link; nothing is downloaded. Details:
+[Get a redirect without following it](api/fetch.md#get-a-redirect-without-following-it).
+
 **Wait for content rendered by JavaScript.**
 
 ```json

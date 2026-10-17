@@ -542,3 +542,48 @@ async def test_default_browser_is_outside_max_browsers_and_never_evicted(monkeyp
     await zero._release(w)
     with pytest.raises(ProxySolvingDisabled):
         await zero._acquire("http://p.example:1", time.monotonic() + 5)
+
+
+async def test_no_follow_never_opens_the_target_in_the_browser(monkeypatch):
+    """follow_redirects=false with a Cloudflare wall: the browser only visits the site root, then one HTTP request to
+    the target with the earned cookies stops at the redirect and reports it."""
+    import app.core.proxy as proxy_mod
+    from app.core.browser import BrowserResult
+    from app.core.cookie_store import store
+    from app.core.fetcher import FetcherResult
+
+    monkeypatch.setattr(proxy_mod, "_DEFAULT_EGRESS", None)
+    http_calls, browser_urls = [], []
+
+    async def fake_http(url, **kw):
+        http_calls.append((url, kw["follow_redirects"], dict(kw["cookies"]), kw["preset"]))
+        if "cf_clearance" not in kw["cookies"]:
+            return FetcherResult(status_code=403, headers={}, body="", cookies={}, final_url=url, cf_wall=True)
+        return FetcherResult(status_code=302, headers={"location": "/files/x.mkv"}, body="", cookies={},
+                             final_url=url, redirect_url="https://nf.example/files/x.mkv",
+                             redirect_chain=[{"url": url, "status": 302, "location": "https://nf.example/files/x.mkv"}])
+
+    async def fake_browser(url, **kw):
+        browser_urls.append((url, kw["click_selector"], kw["method"]))
+        return BrowserResult(status_code=200, body="home", cookies={"cf_clearance": "c" * 20}, final_url=url,
+                             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/146.0.0.0 Safari/537.36")
+
+    monkeypatch.setattr(fetch_mod, "httpcloak_fetch", fake_http)
+    monkeypatch.setattr(fetch_mod.pool, "solve_and_fetch", fake_browser)
+    store.invalidate(store.cache_key("nf.example", None, "direct"))
+
+    r = await fetch_mod.fetch(FetchRequest(url="https://nf.example/get/42", follow_redirects=False))
+    assert browser_urls == [("https://nf.example/", None, "GET")], "the browser must only open the site root"
+    assert all(follow is False for _, follow, _, _ in http_calls)
+    assert http_calls[-1][0] == "https://nf.example/get/42" and "cf_clearance" in http_calls[-1][2]
+    assert http_calls[-1][3] == "chrome-146-windows"
+    assert r.status_code == 302 and r.redirect_url == "https://nf.example/files/x.mkv"
+    assert r.meta.request_type == "browser_clearance_then_http"
+    store.invalidate(store.cache_key("nf.example", None, "direct"))
+
+
+def test_no_follow_rejects_options_that_need_the_page_open():
+    for extra in ({"click_selector": "#go"}, {"wait_for_selector": ".x"}):
+        with pytest.raises(ValidationError):
+            FetchRequest(url="https://example.com/", follow_redirects=False, **extra)
+    assert FetchRequest(url="https://example.com/", follow_redirects=False, force_browser=True).follow_redirects is False

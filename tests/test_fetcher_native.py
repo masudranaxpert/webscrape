@@ -281,6 +281,25 @@ def test_redirects_are_followed_without_reading_their_bodies():
     _with_fakes(run)
 
 
+def test_no_follow_stops_at_the_first_response_and_reports_location():
+    def run():
+        _setup(0.01, 1.0, factory=_redirect_chain(("302", "/files/movie.mkv"), ("200", b"never requested")))
+        res = _run(fetcher.httpcloak_fetch("https://dl.example/get/42", timeout=10, follow_redirects=False))
+        calls = _FakeSession.instances[0].calls
+        assert [c["url"] for c in calls] == ["https://dl.example/get/42"], "the download URL must never be requested"
+        assert res.status_code == 302 and res.redirect_url == "https://dl.example/files/movie.mkv"
+        assert res.final_url == "https://dl.example/get/42"
+        assert res.redirect_chain == [{"url": "https://dl.example/get/42", "status": 302,
+                                       "location": "https://dl.example/files/movie.mkv"}]
+
+        _setup(0.01, 1.0, factory=_redirect_chain(("200", b'<meta http-equiv="refresh" content="0; url=/next">')))
+        res = _run(fetcher.httpcloak_fetch("https://dl.example/page", timeout=10, follow_redirects=False))
+        assert len(_FakeSession.instances) == 1, "a Refresh must not be followed either"
+        assert res.status_code == 200 and res.redirect_url == "https://dl.example/next"
+
+    _with_fakes(run)
+
+
 def test_redirect_method_rules_match_browsers():
     def run():
         for first, expect in (("302", "GET"), ("303", "GET"), ("307", "POST"), ("308", "POST")):

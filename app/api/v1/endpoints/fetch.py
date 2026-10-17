@@ -145,6 +145,57 @@ def _selector_present(html: str, selector: str) -> bool:
         return False
 
 
+async def _read_first_response(req: FetchRequest, logs: list[str], t_start: float, cache_key: str,
+                               browser_ua: str | None) -> FetchResponse:
+    """No-follow mode after a root-page clearance: one HTTP request to the target with the browser's cookies, UA,
+    matching preset and egress, stopping at the first response."""
+    cookies = {**(store.get(cache_key) or {}), **req.inject_cookies}
+    headers = {**req.headers}
+    if browser_ua and not any(k.lower() == "user-agent" for k in headers):
+        headers["user-agent"] = browser_ua
+    preset = _preset_for_ua(browser_ua) or req.preset
+    res = await httpcloak_fetch(
+        url=req.url, method=req.method, headers=headers, body=req.body, cookies=cookies, preset=preset,
+        proxy=req.proxy, http_version=req.http_version, timeout=req.timeout, follow_redirects=False,
+    )
+    if res.error:
+        raise RuntimeError(f"HTTP request to the target after the clearance failed: {res.error}")
+    if res.cf_wall:
+        logs.append(
+            "[NO-FOLLOW] The target path is still challenged after clearing the root page (it has its own rule); "
+            "returning that response as-is"
+        )
+    logs.append(
+        f"[NO-FOLLOW] First response: HTTP {res.status_code}"
+        + (f" -> redirect_url {res.redirect_url}" if res.redirect_url else " (no redirect)")
+    )
+    total_ms = int((time.monotonic() - t_start) * 1000)
+    logs.append(f"[DONE] Resolved via browser clearance + HTTP (not followed) in {total_ms}ms")
+    return FetchResponse(
+        status_code=res.status_code,
+        headers=res.headers,
+        body=res.body,
+        cookies=res.cookies or cookies,
+        url=res.final_url,
+        redirect_url=res.redirect_url,
+        redirect_chain=res.redirect_chain or None,
+        protocol=res.protocol,
+        extracted=_extract(res.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None,
+        logs=logs,
+        meta=RequestMeta(
+            via="http",
+            request_type="browser_clearance_then_http",
+            preset=preset,
+            cf_bypass_attempted=True,
+            cache_hit=False,
+            cookies_used=len(cookies),
+            user_agent=headers.get("user-agent"),
+            body_truncated=res.truncated,
+            body_note=res.note,
+        ),
+    )
+
+
 @router.post(
     "/fetch",
     response_model=FetchResponse,
@@ -258,6 +309,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             proxy=req.proxy,
             http_version=req.http_version,
             timeout=req.timeout,
+            follow_redirects=req.follow_redirects,
         )
 
         if result.note:
@@ -280,6 +332,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 cookies=result.cookies or effective_cookies,
                 url=result.final_url,
                 redirect_chain=result.redirect_chain or None,
+                redirect_url=result.redirect_url,
                 protocol=result.protocol,
                 extracted=_extract(result.body, req.selector, req.selector_attr, req.selector_all) if req.selector and not result.error else None,
                 logs=logs,
@@ -356,6 +409,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 cookies=result.cookies or effective_cookies,
                 url=result.final_url,
                 redirect_chain=result.redirect_chain or None,
+                redirect_url=result.redirect_url,
                 protocol=result.protocol,
                 extracted=extracted,
                 logs=logs,
@@ -449,6 +503,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             proxy=req.proxy,
             http_version=req.http_version,
             timeout=req.timeout,
+            follow_redirects=req.follow_redirects,
         )
         if not retry_res.cf_wall:
             logs.append(f"[HTTP-RETRY] Success! Received HTTP {retry_res.status_code} in {retry_res.elapsed_ms}ms")
@@ -460,6 +515,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 cookies=retry_res.cookies or retry_cookies,
                 url=retry_res.final_url,
                 redirect_chain=retry_res.redirect_chain or None,
+                redirect_url=retry_res.redirect_url,
                 protocol=retry_res.protocol,
                 extracted=extracted,
                 logs=logs,
@@ -492,20 +548,29 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                  meta=RequestMeta(via="http", request_type="http_request_coalesced", preset=req.preset, cf_bypass_attempted=False, cache_hit=False, cookies_used=0, user_agent="")
             )
 
+    # follow_redirects=false: a browser follows every redirect (and would start the download it points to), so it
+    # never opens the target. It only clears Cloudflare on the site's root page (cf_clearance covers the whole host);
+    # the HTTP engine then reads the target's first response with that clearance and stops there
+    no_follow = not req.follow_redirects
+    browser_url = req.url
+    if no_follow:
+        parsed_target = urlparse(req.url)
+        browser_url = f"{parsed_target.scheme}://{parsed_target.netloc}/"
+        logs.append(f"[NO-FOLLOW] Browser clears Cloudflare on {browser_url} only; the target URL is never opened in it")
     logs.append(f"[BROWSER] Requesting worker tab from persistent Chromium pool (Timeout: {req.cf_wait}s)")
     try:
         br = await pool.solve_and_fetch(
-            url=req.url,
+            url=browser_url,
             cf_wait=req.cf_wait,
             proxy=req.proxy,
             page_load_state=req.page_load_state,
             cookies=effective_cookies,
-            wait_for_selector=req.wait_for_selector,
-            click_selector=req.click_selector,
-            method=req.method,
+            wait_for_selector=None if no_follow else req.wait_for_selector,
+            click_selector=None if no_follow else req.click_selector,
+            method="GET" if no_follow else req.method,
             headers=req.headers,
-            body=req.body,
-            payload_bytes=len((req.body or "").encode("utf-8")),
+            body=None if no_follow else req.body,
+            payload_bytes=0 if no_follow else len((req.body or "").encode("utf-8")),
         )
         
         logs.extend(f"[SOLVER] {n}" for n in br.notes)
@@ -527,8 +592,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             )
             cached_count = len(store.get(cache_key) or {})
             logs.append(f"[CACHE] Saved {cached_count} harvested cookies and User-Agent for '{cache_key}'")
-            if br.final_url and br.final_url != req.url and _cache_redirect(host, br.final_url):
+            if not no_follow and br.final_url and br.final_url != req.url and _cache_redirect(host, br.final_url):
                 logs.append(f"[REDIRECT] Cached post-challenge host: {host} -> {urlparse(br.final_url).netloc}")
+        if no_follow:
+            return await _read_first_response(req, logs, t_start, cache_key, br.user_agent)
+
         extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
         if req.selector:
             logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")

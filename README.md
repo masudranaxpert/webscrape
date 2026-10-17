@@ -58,6 +58,7 @@ server IP. More examples: [Making requests](https://masudranaxpert.github.io/web
 | `force_http` / `force_browser` | Pick the engine yourself |
 | `wait_for_selector` | Wait until JavaScript renders an element |
 | `click_selector` | Click once ready and follow where it goes (`url`, `redirect_chain`; downloads return the file URL, never the file) |
+| `follow_redirects` | `false` = return the first response and its `Location` in `redirect_url`, never follow it (download links stay unfetched) |
 | `cf_wait` | Seconds the browser may spend on a challenge (default 25) |
 | `session_id` | Isolated cookie jar (separate logins never mix) |
 | `method`, `headers`, `body` | Any method; the body is sent byte-for-byte |
