@@ -138,6 +138,13 @@
                   <td>Set <code>true</code> for HTTP only: never escalate to the browser; the raw response (even 403 or a challenge page) is returned as-is. Cannot be combined with <code>force_browser</code>.</td>
                 </tr>
                 <tr>
+                  <td><span class="param-name">follow_redirects</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">true</span></td>
+                  <td>Set <code>false</code> to stop at the first response: returns 3xx status and <code>redirect_url</code> with target Location without fetching/downloading the target. Cannot be combined with <code>click_selector</code> or <code>wait_for_selector</code>.</td>
+                </tr>
+                <tr>
                   <td><span class="param-name">cf_wait</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">float</span></td>

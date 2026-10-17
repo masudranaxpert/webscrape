@@ -211,8 +211,9 @@ function checkActiveConfigState() {
   const mode = document.getElementById('cfgEngineMode')?.value || 'auto';
   const preset = document.getElementById('cfgPreset')?.value || 'chrome-latest-windows';
   const httpVer = document.getElementById('cfgHttpVersion')?.value || '';
+  const followRedir = document.getElementById('cfgFollowRedirects')?.value || 'true';
   const proxy = document.getElementById('cfgProxy')?.value.trim() || '';
-  const ua = document.getElementById('cfgUa')?.value.trim() || '';
+  const ua = (document.getElementById('cfgUserAgent') || document.getElementById('cfgUa'))?.value.trim() || '';
   const body = document.getElementById('cfgBody')?.value.trim() || '';
   const turnstileToken = document.getElementById('cfgTurnstileToken')?.value.trim() || '';
   const waitSel = document.getElementById('cfgWaitForSelector')?.value.trim() || '';
@@ -225,6 +226,7 @@ function checkActiveConfigState() {
     mode !== 'auto' ||
     preset !== 'chrome-latest-windows' ||
     httpVer !== '' ||
+    followRedir !== 'true' ||
     proxy !== '' ||
     ua !== '' ||
     body !== '' ||
@@ -239,7 +241,7 @@ function checkActiveConfigState() {
   dot.style.display = isCustom ? 'inline-block' : 'none';
 }
 
-['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgProxy', 'cfgUa', 'cfgBody', 'cfgWaitForSelector', 'cfgClickSelector'].forEach(id => {
+['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgFollowRedirects', 'cfgProxy', 'cfgUserAgent', 'cfgUa', 'cfgBody', 'cfgWaitForSelector', 'cfgClickSelector'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
     el.addEventListener('input', checkActiveConfigState);
@@ -403,7 +405,8 @@ if (btnTestUserProxy && cfgProxy) {
 document.querySelectorAll('.btn-preset').forEach(btn => {
   btn.addEventListener('click', () => {
     const preset = btn.getAttribute('data-preset');
-    if (!targetUrl || !requestMethod) return;
+    const followRedirEl = document.getElementById('cfgFollowRedirects');
+    if (followRedirEl) followRedirEl.value = 'true';
 
     if (preset === 'httpbin') {
       requestMethod.value = 'GET';
@@ -633,6 +636,7 @@ fetchForm.addEventListener('submit', async (e) => {
   const httpVersion = document.getElementById('cfgHttpVersion').value;
   const timeout = parseInt(document.getElementById('cfgTimeout').value, 10) || 30;
   const userAgent = document.getElementById('cfgUserAgent').value.trim();
+  const followRedirects = document.getElementById('cfgFollowRedirects') ? document.getElementById('cfgFollowRedirects').value !== 'false' : true;
 
   const customHeaders = getKvPairs('headersKvContainer');
   const customCookies = getKvPairs('cookiesKvContainer');
@@ -662,6 +666,7 @@ fetchForm.addEventListener('submit', async (e) => {
     cookie_limit: cookieLimit
   };
 
+  if (!followRedirects) payload.follow_redirects = false;
   if (engineMode === 'browser') payload.force_browser = true;
   if (engineMode === 'http') payload.force_http = true;
   if (proxyVal) payload.proxy = proxyVal;

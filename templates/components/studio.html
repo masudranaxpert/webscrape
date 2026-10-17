@@ -150,7 +150,27 @@
                   </div>
                 </div>
                 <div class="cfg-grid-3" style="margin-top:16px;">
-                  <div class="cfg-field" style="grid-column:span 2;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Follow Redirects</label>
+                    <select id="cfgFollowRedirects" class="cfg-select">
+                      <option value="true" selected>Follow (Default)</option>
+                      <option value="false">Stop at first (Don't follow / Download-safe)</option>
+                    </select>
+                    <span class="cfg-hint">Set to stop to get 3xx + Location without downloading target.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Timeout (Seconds)</label>
+                    <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
+                    <span class="cfg-hint">Max request execution timeout window.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Custom User-Agent</label>
+                    <input type="text" id="cfgUserAgent" class="cfg-input" placeholder="Leave blank for authentic browser UA" />
+                    <span class="cfg-hint">Preset User-Agent override (optional).</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-1" style="margin-top:16px;">
+                  <div class="cfg-field">
                     <label class="cfg-label">Egress Proxy URL</label>
                     <div class="input-with-action">
                       <input type="text" id="cfgProxy" class="cfg-input" placeholder="http://user:pass@host:port, or direct (blank = default browser: WARP if set)" />
@@ -162,17 +182,6 @@
                       </button>
                     </div>
                     <span class="cfg-hint">Supports HTTP, HTTPS, and SOCKS5 (with auth). Pass <code>direct</code> to bypass server egress.</span>
-                  </div>
-                  <div class="cfg-field">
-                    <label class="cfg-label">Timeout (Seconds)</label>
-                    <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
-                    <span class="cfg-hint">Max request execution timeout window.</span>
-                  </div>
-                </div>
-                <div class="cfg-grid-1" style="margin-top:16px;">
-                  <div class="cfg-field">
-                    <label class="cfg-label">Custom User-Agent Override (Optional)</label>
-                    <input type="text" id="cfgUserAgent" class="cfg-input" placeholder="Leave blank to use preset's authentic browser User-Agent" />
                   </div>
                 </div>
               </div>
