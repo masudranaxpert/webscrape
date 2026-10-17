@@ -793,6 +793,19 @@ fetchForm.addEventListener('submit', async (e) => {
       return;
     }
 
+    // Redirect returned but not followed (follow_redirects=false, or a Refresh target)
+    const redirectPill = document.getElementById('redirectPill');
+    if (redirectPill) {
+      if (data && typeof data.redirect_url === 'string' && data.redirect_url) {
+        redirectPill.textContent = 'Redirect: ' + data.redirect_url;
+        redirectPill.title = data.redirect_url;
+        redirectPill.style.display = '';
+      } else {
+        redirectPill.textContent = '';
+        redirectPill.style.display = 'none';
+      }
+    }
+
     // Update Status Pill
     const code = data.status_code || res.status;
     if (statusPill) {
