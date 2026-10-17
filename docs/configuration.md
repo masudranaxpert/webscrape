@@ -11,7 +11,7 @@ setting stops the app at start-up.
 | Variable | Default | Used in | What / why |
 | --- | --- | --- | --- |
 | `API_KEY` | — | `core/auth.py` | Key for `X-API-Key` / Bearer auth. The app refuses to start without it unless `DEBUG=true` |
-| `CLOAKBROWSER_LICENSE_KEY` | empty | `core/browser.py` (read by cloakbrowser) | Pro license. Empty or invalid → keyless build (challenged more often). An "invalid or expired" answer is remembered for 1 h so launches stop re-validating it |
+| `CLOAKBROWSER_LICENSE_KEY` | empty | `core/browser.py` (read by cloakbrowser) | Pro license. Empty or invalid → keyless build (challenged more often). An "invalid or expired" answer is remembered for 10 min so launches stop re-validating it (the free plan reports a seat busy on another machine the same way) |
 
 ## Server
 
@@ -72,7 +72,7 @@ setting stops the app at start-up.
 | --- | --- | --- |
 | `TURNSTILE_MAX_QUEUE` | `200` | Requests waiting per sitekey before 503 |
 | `TURNSTILE_MINTERS_PER_KEY` | `1` | Parallel minters per sitekey. >1 makes Cloudflare escalate difficulty |
-| `TURNSTILE_PREFETCH` | `3` | Spare tokens kept during a burst (0 = mint strictly on demand) |
+| `TURNSTILE_PREFETCH` | `0` | Spare tokens kept during a burst. 0 = mint strictly on demand (recommended: no wasted solves on the sitekey) |
 
 ## Set by the platform, not by the app
 

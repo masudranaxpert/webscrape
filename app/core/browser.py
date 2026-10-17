@@ -94,8 +94,9 @@ _SEAT_RETRIES = 2
 _SEAT_RETRY_DELAY_SEC = 2.5
 # Ceiling for one worker launch (GeoIP lookups + seat retries + Chromium start)
 _LAUNCH_TIMEOUT_SEC = 90.0
-# After an "invalid or expired" license answer, retry the licensed build only this often
-_LICENSE_DENIED_RETRY_SEC = 3600.0
+# After an "invalid or expired" license answer, retry the licensed build only this often. Kept short: the free plan
+# reports a seat held by another machine the same way, and that clears on its own
+_LICENSE_DENIED_RETRY_SEC = 600.0
 
 
 class BrowserPool:
@@ -182,12 +183,13 @@ class BrowserPool:
         }
 
     def _may_license(self, proxy: str | None) -> bool:
-        """License seat: the direct browser, or the WARP default egress when WARP_PROXY is set.
-        Proxied browsers for any other proxy always run keyless."""
+        """The single license seat goes to the default browser: the WARP one when WARP_PROXY is set, otherwise the
+        direct one. Never both: the second licensed launch only hits "session limit", waits out the seat retries
+        (~9s measured) and ends up keyless anyway. Every other proxy always runs keyless."""
         from app.core.config import WARP_PROXY
 
         if proxy is None:
-            return True
+            return not WARP_PROXY
         if not WARP_PROXY:
             return False
         try:

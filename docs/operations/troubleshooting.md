@@ -32,8 +32,9 @@ nd exec -A <account> -s warp <app-id> sh -c \
 
 ## `CloakBrowser Pro: license key is invalid or expired`
 
-The key in `CLOAKBROWSER_LICENSE_KEY` was rejected; everything runs on the keyless build. Fix or remove the key and
-redeploy. The app stops re-validating a rejected key for an hour, so the warning appears at most hourly.
+The key in `CLOAKBROWSER_LICENSE_KEY` was rejected and the browser fell back to the keyless build. On the free plan
+this also appears when the single seat is held elsewhere (for example a local run with the same key), so first stop
+other users of the key. If it persists, fix or remove the key and redeploy. The app stops re-validating a rejected key for 10 minutes, so the warning appears at most every 10 minutes.
 
 ## `status_code: 503`
 

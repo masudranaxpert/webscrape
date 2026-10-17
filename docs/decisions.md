@@ -31,6 +31,14 @@ A dead proxy's GeoIP lookup takes 20 s+. Under the lock it froze every other ide
 They are single-use and expire after 300 s. What scales is minting: a warm widget page with `turnstile.reset()`,
 a queue per sitekey, and a few pre-minted spares during bursts.
 
+### Turnstile pre-minting is off by default
+A pre-minted token nobody takes is a solve Cloudflare saw for nothing, on the same sitekey and IP. The warm page
+already makes on-demand tokens fast (~2 s), so `TURNSTILE_PREFETCH=0` unless traffic really comes in repeated bursts.
+
+### No fixed settle on clean pages
+A Cloudflare interstitial is server-rendered and visible at load. Waiting a fixed 2.5 s on every browser fetch was
+most of its latency; clean pages now get a 0.6 s second look, walls still get a settle.
+
 ### Same-sitekey minting is serialised
 Parallel solves of one sitekey from one IP make Cloudflare escalate difficulty.
 

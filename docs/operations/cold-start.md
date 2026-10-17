@@ -12,7 +12,7 @@ What happens when the server is switched off for days and turned back on, or whe
 | Xvfb | Stale `/tmp/.X99-lock` from an unclean shutdown is removed by the entrypoint before Xvfb starts | ✓ |
 | Cookie cache | Restored from `/app/data/cookie_cache.json`; jars whose wall-clock expiry passed while offline are skipped. After days, expect an empty cache and fresh solves | ✓ |
 | Browser binary / GeoIP DB | Baked into the image; no download at start. The GeoIP DB refreshes itself in the background after 30 days, never blocking a launch | ✓ |
-| License | Validated online at the first launch; an invalid key falls back to the keyless build and is not retried for 1 h | ✓ |
+| License | Validated online at the first launch; an invalid key falls back to the keyless build and is not retried for 10 min | ✓ |
 | Exit IPs | WARP may come back with a new exit IP. Old clearances then fail once and are re-solved; the exit-IP probe also drops them | ✓ |
 
 ## Self-healing at runtime

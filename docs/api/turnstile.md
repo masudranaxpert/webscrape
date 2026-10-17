@@ -17,7 +17,7 @@ Response: `{"solved": true, "token": "...", "elapsed": 2.1, "pooled": false, "si
 
 | Status | Meaning |
 | --- | --- |
-| `200` | Token minted. `pooled: true` = it was minted moments ago during a burst; still single-use and never given to anyone else |
+| `200` | Token minted. `pooled: true` = it was pre-minted (only with `TURNSTILE_PREFETCH` > 0); still single-use and never given to anyone else |
 | `422` | Bad sitekey/siteurl/proxy format |
 | `502` | Widget error (e.g. `110200` domain not authorized, `400020` invalid sitekey) or browser failure |
 | `503` | Browser pool busy, or this sitekey's queue is full (`TURNSTILE_MAX_QUEUE`) |
@@ -48,8 +48,9 @@ flowchart LR
   context: ~2 s per token instead of ~4–5 s.
 - **Queue, oldest first.** Concurrent requests for one sitekey wait for the minter. Past `TURNSTILE_MAX_QUEUE`
   waiters the API answers `503` immediately instead of letting requests pile up.
-- **Pre-minting.** When several requests arrived within 60 s, the minter keeps up to `TURNSTILE_PREFETCH` spare
-  tokens; a spare is dropped once it is 270 s old.
+- **Pre-minting (off by default).** With `TURNSTILE_PREFETCH=N`, after a burst the minter keeps up to N spare tokens
+  so the next requests are answered instantly; a spare nobody takes is dropped at 270 s. That costs extra solves
+  Cloudflare sees on the sitekey, so leave it at 0 unless requests really arrive in repeated bursts.
 - **Serialised per sitekey by default.** Parallel solves on one sitekey from one IP make Cloudflare escalate
   difficulty. `TURNSTILE_MINTERS_PER_KEY` can raise it; measure before you do.
 - **Throughput.** One minter delivers roughly 15–30 tokens per minute. Different sitekeys mint in parallel, each on

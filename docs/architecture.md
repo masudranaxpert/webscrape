@@ -90,7 +90,8 @@ flowchart LR
 
 1. New context, cached cookies injected, custom headers set; non-GET methods rewrite the navigation's method/body.
 2. Navigate. Fatal network errors (`ERR_NAME_NOT_RESOLVED`, refused, TLS errors) fail fast with 502.
-3. Settle 2.5 s, then loop until the wall is gone (and `wait_for_selector` exists) or `cf_wait` runs out:
+3. Check for a wall at once (Cloudflare interstitials are server-rendered); a clean page gets one 0.6 s second look
+   and goes straight to harvesting, a wall gets a 2 s settle. Then loop until the wall is gone (and `wait_for_selector` exists) or `cf_wait` runs out:
    detect fresh `cf_clearance`, reload once if Cloudflare does not redirect by itself, click the Turnstile checkbox
    every 2.5 s. A 429 from the origin past the wall stops the loop early.
 4. A Chrome error page (`chrome-error://`) is reported as a failure, never as a solved 200.

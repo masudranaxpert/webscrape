@@ -153,14 +153,15 @@ async def _fast_sleep(_delay, *a, **k):
     await _real_sleep(0)
 
 
-async def test_burst_on_one_sitekey_gets_distinct_tokens_from_one_warm_page(fake_widget):
+async def test_burst_on_one_sitekey_gets_distinct_tokens_from_one_warm_page(fake_widget, monkeypatch):
+    monkeypatch.setattr(turnstile, "TURNSTILE_PREFETCH", 3)
     worker = fake_widget([f"tok-{i:02d}-xxxxxxxxxx" for i in range(20)])
     results = await asyncio.gather(*(turnstile.solve("0xkey", "https://example.com/", timeout=5) for _ in range(8)))
     tokens = [r["token"] for r in results]
     assert len(set(tokens)) == 8, "a token must never be handed to two requests"
     assert worker.contexts == 1, "the burst is served from one warm widget page (turnstile.reset), not 8 contexts"
 
-    # The burst pre-minted spares: the next request is served instantly from the pool, still a unique token
+    # With pre-minting on, the burst left spares: the next request is served instantly from the pool, still a unique token
     await _settle()
     nxt = await turnstile.solve("0xkey", "https://example.com/", timeout=5)
     assert nxt["pooled"] and nxt["token"] not in tokens
@@ -276,3 +277,80 @@ async def test_cookie_cache_survives_restart_and_respects_size_cap(tmp_path, mon
     # A corrupt file never breaks startup
     path.write_bytes(b"{not json")
     cache_persist.load()
+
+
+async def test_default_mints_strictly_on_demand(fake_widget):
+    """TURNSTILE_PREFETCH defaults to 0: a burst mints exactly one token per request, nothing is left over."""
+    assert turnstile.TURNSTILE_PREFETCH == 0
+    fake_widget([f"tok-{i:02d}-xxxxxxxxxx" for i in range(20)])
+    await asyncio.gather(*(turnstile.solve("0xdemand", "https://example.com/", timeout=5) for _ in range(4)))
+    await _settle()
+    assert turnstile._minters == {}, "no spare tokens and no minter left running"
+
+
+async def test_replayed_browser_ua_forces_matching_preset_even_if_request_sends_one(monkeypatch):
+    """The playground always sends preset=chrome-latest-windows; replaying a cached Chrome/146 UA must still use
+    chrome-146-*, and a caller that brings its own UA keeps its own preset."""
+    from app.core.cookie_store import store
+    from app.core.fetcher import FetcherResult
+
+    calls = []
+
+    async def fake_http(url, **kw):
+        calls.append((kw["preset"], kw["headers"].get("user-agent")))
+        return FetcherResult(status_code=200, headers={}, body="ok", cookies={}, final_url=url)
+
+    monkeypatch.setattr(fetch_mod, "httpcloak_fetch", fake_http)
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    key = store.cache_key("preset.example.com", None, "direct")
+    store.set(key, {"cf_clearance": "c" * 20}, ua=ua, preset="chrome-latest-windows")
+
+    r = await fetch_mod.fetch(FetchRequest(url="https://preset.example.com/", preset="chrome-latest-windows", proxy="direct"))
+    assert calls[-1] == ("chrome-146-windows", ua) and r.meta.preset == "chrome-146-windows"
+    assert store.get_identity(key)["preset"] in (None, "chrome-latest-windows", "chrome-146-windows")
+
+    await fetch_mod.fetch(FetchRequest(url="https://preset.example.com/", preset="firefox-latest",
+                                       user_agent="Mozilla/5.0 Firefox/148.0", proxy="direct"))
+    assert calls[-1][0] == "firefox-latest"
+    store.invalidate(key)
+
+
+async def test_settle_navigation_waits_for_redirects_to_finish():
+    from app.core import fetch_flow
+
+    last_nav = [time.monotonic()]
+
+    class _Page:
+        async def wait_for_load_state(self, *_a, **_k):
+            pass
+
+    async def redirect_later():
+        await asyncio.sleep(0.3)
+        last_nav[0] = time.monotonic()  # a meta/JS redirect fires after the solve
+
+    t0 = time.monotonic()
+    task = asyncio.create_task(redirect_later())
+    await fetch_flow._settle_navigation(_Page(), last_nav, "load")
+    await task
+    waited = time.monotonic() - t0
+    assert waited >= 0.3 + fetch_flow._NAV_QUIET_SEC - 0.05, "must not read the page while it is still navigating"
+
+    # A page that stopped navigating long ago is read at once
+    last_nav[0] = time.monotonic() - 5
+    t0 = time.monotonic()
+    await fetch_flow._settle_navigation(_Page(), last_nav, "load")
+    assert time.monotonic() - t0 < 0.1
+
+
+def test_single_license_seat_goes_to_the_default_browser_only(monkeypatch):
+    import app.core.config as config_mod
+    from app.core.browser import BrowserPool
+
+    pool = BrowserPool(max_tabs=5, headless=True, max_browsers=1, geoip=False)
+    monkeypatch.setattr(config_mod, "WARP_PROXY", "")
+    assert pool._may_license(None) and not pool._may_license("http://other.example:1")
+
+    monkeypatch.setattr(config_mod, "WARP_PROXY", "http://warp:8080")
+    assert pool._may_license("http://warp:8080"), "WARP is the default browser: it holds the seat"
+    assert not pool._may_license(None), "direct must not fight WARP for the one seat (~9s of session-limit retries)"
+    assert not pool._may_license("http://other.example:1")

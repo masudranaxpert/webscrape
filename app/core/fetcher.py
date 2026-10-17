@@ -443,7 +443,7 @@ async def httpcloak_fetch(
                         _redirect_depth + 1, current_url, redirect_target,
                     )
                     merged_cookies = {**(cookies or {}), **harvested}
-                    return await httpcloak_fetch(
+                    nxt = await httpcloak_fetch(
                         url=redirect_target,
                         method="GET",
                         headers=headers,
@@ -455,6 +455,15 @@ async def httpcloak_fetch(
                         timeout=timeout,
                         _redirect_depth=_redirect_depth + 1,
                     )
+                    # Report the whole journey: this page's hops plus the Refresh hop, its time and its cookies
+                    hops = [dict(h) for h in chain] or [{"url": current_url, "status": status, "location": None}]
+                    hops[-1]["location"] = redirect_target
+                    nxt.redirect_chain = hops + (
+                        nxt.redirect_chain or [{"url": nxt.final_url, "status": nxt.status_code, "location": None}]
+                    )
+                    nxt.cookies = {**harvested, **nxt.cookies}
+                    nxt.elapsed_ms += elapsed_ms
+                    return nxt
 
         if DEBUG:
             logger.debug(

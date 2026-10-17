@@ -33,8 +33,9 @@ _coalesce_events: dict[str, asyncio.Event] = {}
 _coalesce_lock: asyncio.Lock = asyncio.Lock()
 
 
-def _cache_redirect(host: str, url: str) -> None:
-    """Store redirect hostname with LRU eviction and TTL to prevent 403 loops on naked domains."""
+def _cache_redirect(host: str, url: str) -> bool:
+    """Store a same-site redirect hostname (LRU, TTL) to prevent 403 loops on naked domains. True when stored;
+    a redirect to a path on the same host is not a host rewrite and is not cached."""
     parsed_final = urlparse(url)
     if (
         parsed_final.hostname
@@ -46,6 +47,8 @@ def _cache_redirect(host: str, url: str) -> None:
         elif len(_redirect_cache) >= _MAX_REDIRECTS:
             _redirect_cache.popitem(last=False)
         _redirect_cache[host] = (parsed_final.netloc, time.monotonic() + _REDIRECT_TTL_SEC)
+        return True
+    return False
 
 
 def _get_redirect_netloc(host: str) -> str | None:
@@ -174,7 +177,18 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     cached_cookies = store.get(cache_key) or {}
     ident = store.get_identity(cache_key)
     cached_ua = ident["user_agent"]
-    if cached_cookies and "preset" not in req.model_fields_set and ident["preset"]:
+    # When the cached browser UA is replayed, the TLS preset must be the one matching that UA, whatever preset the
+    # request carries (the playground always sends the default): a chrome-latest preset next to a Chrome/146 UA is
+    # exactly the mismatch Cloudflare re-challenges. A caller who sets its own UA keeps its own preset.
+    replays_cached_ua = bool(
+        cached_cookies and cached_ua and not req.user_agent
+        and not any(k.lower() == "user-agent" for k in req.headers)
+    )
+    if replays_cached_ua:
+        matching = _preset_for_ua(cached_ua)
+        if matching and matching != req.preset:
+            req = req.model_copy(update={"preset": matching})
+    elif cached_cookies and "preset" not in req.model_fields_set and ident["preset"]:
         req = req.model_copy(update={"preset": ident["preset"]})
     raw_effective = {**cached_cookies, **req.inject_cookies}
     effective_cookies, was_truncated = store.filter_and_limit(
@@ -513,9 +527,8 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             )
             cached_count = len(store.get(cache_key) or {})
             logs.append(f"[CACHE] Saved {cached_count} harvested cookies and User-Agent for '{cache_key}'")
-            if br.final_url and br.final_url != req.url:
-                _cache_redirect(host, br.final_url)
-                logs.append(f"[REDIRECT] Cached post-challenge destination: {host} -> {br.final_url}")
+            if br.final_url and br.final_url != req.url and _cache_redirect(host, br.final_url):
+                logs.append(f"[REDIRECT] Cached post-challenge host: {host} -> {urlparse(br.final_url).netloc}")
         extracted = _extract(br.body, req.selector, req.selector_attr, req.selector_all) if req.selector else None
         if req.selector:
             logs.append(f"[EXTRACT] CSS selector '{req.selector}' extracted {len(extracted or [])} elements")

@@ -28,11 +28,34 @@ _MAX_CHAIN = 25
 # Origin statuses that mean "past Cloudflare, but the site itself refuses" (e.g. a per-IP rate limit answers 429):
 # waiting out cf_wait for a selector on such a page only wastes the budget
 _ORIGIN_REFUSAL_STATUSES = (429,)
+# Second look at a page that showed no challenge at load, and the settle a detected wall gets before solving
+_CLEAN_RECHECK_SEC = 0.6
+_WALL_SETTLE_SEC = 2.0
+# Before harvesting: the main frame must be navigation-quiet this long (catches instant meta/JS redirects), capped
+_NAV_QUIET_SEC = 0.8
+_NAV_SETTLE_MAX_SEC = 8.0
 # Chromium net errors that mean the target is unreachable (no page, no challenge to solve)
 _FATAL_NET_ERRORS = (
     "ERR_NAME_NOT_RESOLVED", "ERR_CONNECTION_REFUSED", "ERR_ADDRESS_UNREACHABLE", "ERR_CERT_",
     "ERR_SSL_PROTOCOL_ERROR", "ERR_INVALID_URL", "ERR_UNSAFE_PORT",
 )
+
+
+async def _settle_navigation(page: Any, last_nav: list[float], load_state: str) -> None:
+    """Return once the current document reached `load_state` and the main frame has not navigated for
+    _NAV_QUIET_SEC, or after _NAV_SETTLE_MAX_SEC. Quiet time counts from the last navigation, so a page that settled
+    long ago returns immediately."""
+    deadline = time.monotonic() + _NAV_SETTLE_MAX_SEC
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        with contextlib.suppress(Exception):
+            await page.wait_for_load_state(load_state, timeout=max(100, int(remaining * 1000)))
+        quiet_for = time.monotonic() - last_nav[0]
+        if quiet_for >= _NAV_QUIET_SEC:
+            return
+        await asyncio.sleep(min(_NAV_QUIET_SEC - quiet_for, max(0.0, deadline - time.monotonic())) + 0.05)
 
 
 async def run_fetch_flow(
@@ -115,11 +138,19 @@ async def run_fetch_flow(
             except Exception:
                 pass
 
+        # Time of the latest main-frame navigation, for _settle_navigation
+        last_nav = [time.monotonic()]
+
+        def _on_frame_navigated(frame: Any) -> None:
+            if frame == page.main_frame:
+                last_nav[0] = time.monotonic()
+
         def _on_download(download: Any) -> None:
             downloads.append({"url": download.url, "filename": download.suggested_filename})
             asyncio.ensure_future(_cancel_download(download))
 
         page.on("response", _on_nav_response)
+        page.on("framenavigated", _on_frame_navigated)
         page.on("download", _on_download)
 
         # Pre-inject cached cookies into context
@@ -168,11 +199,16 @@ async def run_fetch_flow(
             else:
                 logger.warning("cloakbrowser navigation warning on %s: %s", url, redact(str(nav_err)))
 
-        # Settle period for challenge scripts to execute
-        await asyncio.sleep(2.5)
-        # Check for interstitial wall or a not-yet-rendered target selector.
+        # A Cloudflare interstitial is server-rendered (challenge title and #challenge-* markers exist at load), so it
+        # is visible right away: a clean-looking page gets one short second look instead of a fixed 2.5s settle,
+        # which was most of a plain browser fetch. A wall still gets the full settle for its scripts to start.
         # Embedded Turnstile token minting is NOT this engine's job — use /solve-turnstile.
         wall = not await is_bypassed(page)
+        if not wall:
+            await asyncio.sleep(_CLEAN_RECHECK_SEC)
+            wall = not await is_bypassed(page)
+        if wall:
+            await asyncio.sleep(_WALL_SETTLE_SEC)
         missing = selector is not None and not await has_selector(page, selector)
 
         if wall or missing:
@@ -286,6 +322,10 @@ async def run_fetch_flow(
                 except Exception as de:
                     notes.append(f"debug failed: {de}")
 
+        # The wall can clear into a redirect chain (Cloudflare reload, then the site's own meta/JS redirect): let the
+        # main frame finish navigating before anything is read, or page.content() captures a half-parsed document
+        await _settle_navigation(page, last_nav, load_state)
+
         # Final state capture. Chrome's own error page (timeout, reset, proxy drop) carries no challenge markers and
         # would otherwise be reported as a solved 200
         if (page.url or "").startswith("chrome-error://") and not downloads:
@@ -354,6 +394,8 @@ async def run_fetch_flow(
                 notes.append(f"Clicked selector: {click_selector}")
                 outcome = await await_click_outcome(page, chain, downloads)
                 notes.append(f"After click: {outcome}")
+                if not downloads:
+                    await _settle_navigation(page, last_nav, load_state)
                 final_url = page.url or final_url
 
         body = ""

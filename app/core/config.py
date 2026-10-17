@@ -46,10 +46,11 @@ PROXY_QUEUE_BYTE_LIMIT: int = int(os.getenv("PROXY_QUEUE_BYTE_LIMIT", str(16 * 1
 # http://warp:8080 = the default browser egresses via the warp sidecar; restart to change
 WARP_PROXY: str = os.getenv("WARP_PROXY", "").strip()
 # /solve-turnstile: requests queued per sitekey before 503; parallel minters per sitekey (more than 1 makes
-# Cloudflare escalate difficulty); tokens pre-minted during a burst (each is single-use and dropped after 270s)
+# Cloudflare escalate difficulty); spare tokens pre-minted during a burst (0 = strictly on demand: every solve
+# answers a real request, so Cloudflare never sees wasted solves on the sitekey)
 TURNSTILE_MAX_QUEUE: int = max(1, int(os.getenv("TURNSTILE_MAX_QUEUE", "200")))
 TURNSTILE_MINTERS_PER_KEY: int = max(1, int(os.getenv("TURNSTILE_MINTERS_PER_KEY", "1")))
-TURNSTILE_PREFETCH: int = max(0, int(os.getenv("TURNSTILE_PREFETCH", "3")))
+TURNSTILE_PREFETCH: int = max(0, int(os.getenv("TURNSTILE_PREFETCH", "0")))
 # Cookie cache persisted across restarts/deploys ('' = memory only); oldest entries dropped past the size cap
 COOKIE_CACHE_FILE: str = os.getenv("COOKIE_CACHE_FILE", str(BASE_DIR / "data" / "cookie_cache.json")).strip()
 COOKIE_CACHE_MAX_MB: float = float(os.getenv("COOKIE_CACHE_MAX_MB", "20"))
