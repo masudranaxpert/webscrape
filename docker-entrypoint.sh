@@ -6,8 +6,8 @@ DISPLAY_NUM="${DISPLAY_NUM:-99}"
 # Clean up stale X11 locks if container or subshell restarted
 rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
 
-# Start Xvfb virtual display
-Xvfb ":${DISPLAY_NUM}" -screen 0 1920x1080x24 -nolisten tcp -ac &
+# Start Xvfb; xkbcomp keysym warnings are cosmetic version-skew noise, not errors
+{ Xvfb ":${DISPLAY_NUM}" -screen 0 1920x1080x24 -nolisten tcp -ac 2>&1 | grep -vE "Could not resolve keysym|^Warnings|^Errors from xkbcomp"; } &
 export DISPLAY=":${DISPLAY_NUM}"
 
 # Wait for X socket readiness
@@ -18,7 +18,7 @@ for _ in $(seq 1 50); do
 done
 
 # Window manager so headed --start-maximized and window geometry are honored
-DISPLAY=":${DISPLAY_NUM}" openbox &
+{ DISPLAY=":${DISPLAY_NUM}" openbox 2>&1 | grep -v "menu file"; } &
 
 # Fewer glibc malloc arenas: keeps the Python process's reserved address space small (harmless hardening)
 export MALLOC_ARENA_MAX=2

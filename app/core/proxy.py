@@ -7,14 +7,15 @@ cf_clearance is bound to the IP that earned it and CloakBrowser's timezone/local
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import re
 from urllib.parse import quote, unquote, urlsplit
 
-from app.core.config import DEFAULT_PROXY, DEFAULT_PROXY_DOMAINS
+from app.core.config import ALLOW_PRIVATE_TARGETS, WARP_PROXY
 
 SUPPORTED_SCHEMES = ("http", "https", "socks5", "socks5h")
 
-# Request values that explicitly opt out of DEFAULT_PROXY routing
+# Request values that explicitly ask for a direct connection
 DIRECT_SENTINELS = ("direct", "off")
 
 DIRECT_KEY = "direct"
@@ -95,26 +96,34 @@ def browser_proxy(proxy: str | None) -> str | None:
     return proxy
 
 
-def _host_matches(host: str, domains: tuple[str, ...]) -> bool:
-    return any(host == d or host.endswith("." + d) for d in domains)
+_DEFAULT_EGRESS = normalize_proxy(WARP_PROXY) if WARP_PROXY else None
 
 
-def _parse_domains(raw: str) -> tuple[str, ...]:
-    return tuple(d.strip().lower().lstrip(".") for d in raw.split(",") if d.strip())
-
-
-_DEFAULT_PROXY = normalize_proxy(DEFAULT_PROXY)
-_DEFAULT_PROXY_DOMAINS = _parse_domains(DEFAULT_PROXY_DOMAINS)
-
-
-def resolve_proxy(requested: str | None, host: str) -> str | None:
-    """Pick the egress proxy for a request: explicit value > 'direct' opt-out > DEFAULT_PROXY routing rule."""
+def resolve_proxy(requested: str | None, host: str = "") -> str | None:
+    """Explicit proxy wins; 'direct'/'off' opt out; otherwise WARP_PROXY when set, else direct."""
     if requested and requested.strip().lower() in DIRECT_SENTINELS:
         return None
     if requested:
         return normalize_proxy(requested)
-    if _DEFAULT_PROXY and (not _DEFAULT_PROXY_DOMAINS or _host_matches(host.lower(), _DEFAULT_PROXY_DOMAINS)):
-        return _DEFAULT_PROXY
+    return _DEFAULT_EGRESS
+
+
+def forbidden_target(host: str | None) -> str | None:
+    """Why a target host must not be fetched (None = allowed): loopback, private, link-local and other non-public IP
+    literals, `localhost`, and dot-less names that only resolve inside the container network (e.g. `warp`)."""
+    if ALLOW_PRIVATE_TARGETS or not host:
+        return None
+    name = host.strip("[]").rstrip(".").lower()
+    if name == "localhost" or name.endswith((".localhost", ".internal", ".local")) or "." not in name and ":" not in name:
+        return f"Target host '{host}' is internal; only public hosts can be fetched"
+    try:
+        ip = ipaddress.ip_address(name)
+    except ValueError:
+        return None
+    if getattr(ip, "ipv4_mapped", None):
+        ip = ip.ipv4_mapped
+    if not ip.is_global:
+        return f"Target address '{host}' is not a public IP"
     return None
 
 
@@ -131,7 +140,13 @@ def is_proxy_error(message: str | None) -> bool:
             "err_socks",
             "proxy connection",
             "proxy authentication",
-            "socks",
-            "407",
+            "proxy handshake",
+            "proxy_error",
+            "http 407",
+            "status 407",
+            "socks connect",
+            "socks error",
+            "socks5 connection",
+            "socks4 connection",
         )
     )

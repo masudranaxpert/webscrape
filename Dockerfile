@@ -58,7 +58,8 @@ RUN (useradd -m -s /bin/bash ubuntu || true) && \
     chown -R ubuntu:ubuntu /app /home/ubuntu/.cloakbrowser
 
 # 1. Install dependencies first (layer-cached across code changes)
-COPY requirements.txt .
+# --chmod beats restrictive modes the workspace upload may carry; the file must be readable by USER ubuntu below
+COPY --chmod=0644 requirements.txt .
 
 USER ubuntu
 
@@ -86,7 +87,9 @@ RUN CHROME_PATH=$(/app/venv/bin/python3 -c "import cloakbrowser; print(cloakbrow
 
 # 2. Copy application files (changes frequently without invalidating dependencies)
 COPY . .
+# /app/data holds the persisted cookie cache; created here so a new named volume inherits ubuntu ownership
 RUN chmod +x /app/docker-entrypoint.sh && \
+    mkdir -p /app/data && \
     chown -R ubuntu:ubuntu /app
 
 USER ubuntu

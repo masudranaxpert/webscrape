@@ -1,0 +1,335 @@
+    <!-- Endpoints Reference -->
+    <section class="docs-section" id="endpoints">
+      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">API Reference</h2>
+
+      <!-- POST /fetch -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" style="cursor: pointer;" onclick="toggleEndpointCard('bodyFetch', this)">
+          <div class="endpoint-path">
+            <span class="badge-method method-post">POST</span>
+            <span>/fetch</span>
+          </div>
+          <button type="button" class="btn-endpoint-toggle is-collapsed" aria-expanded="false" aria-label="Toggle details">
+            <span class="endpoint-toggle-label">Show</span>
+            <svg class="svg-icon endpoint-chevron" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+        </div>
+        <div class="endpoint-body is-collapsed" id="bodyFetch">
+          <p class="endpoint-desc">
+            Primary endpoint for fetching content. Automatically routes through the fast-path or executes Cloudflare
+            bypass via the persistent browser pool.
+          </p>
+
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Authentication &amp; Request Headers</h4>
+          <div class="table-container" style="margin-bottom: 24px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Header</th>
+                  <th>Requirement</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="param-name">X-API-Key</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td>Secret API key configured in <code>.env</code> (e.g. <code>anti_secret_key_123</code>). 100% required for direct API endpoints (<code>/fetch</code>, <code>/solve-turnstile</code>, <code>/cookies</code>). Missing or invalid keys return <code>401 Unauthorized</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">Authorization</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td>Bearer token alternative: <code>Bearer &lt;your_api_key&gt;</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">Content-Type</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td>Must be set to <code>application/json</code>.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Request Parameters (JSON Body)</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Requirement</th>
+                  <th>Type</th>
+                  <th>Default</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="param-name">url</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">—</span></td>
+                  <td>Target URL to fetch (e.g. <code>https://example.com/protected-page</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">method</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">"GET"</span></td>
+                  <td>HTTP Method (<code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>DELETE</code>,
+                    <code>PATCH</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">headers</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">object</span></td>
+                  <td><span class="param-default">{}</span></td>
+                  <td>Custom request headers merged into preset browser header order.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">body</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Raw request payload for POST/PUT requests.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">user_agent</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null (auto)</span></td>
+                  <td>Custom User-Agent header string. When null, uses preset's authentic UA.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">preset</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">"chrome-latest-windows"</span></td>
+                  <td>Fingerprint profile (<code>chrome-latest-windows</code>, <code>chrome-latest-linux</code>,
+                    <code>firefox-latest</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">proxy</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Egress proxy: <code>http://</code>, <code>https://</code>, <code>socks5://</code> or
+                    <code>socks5h://</code>, credentials allowed (<code>socks5://user:pass@host:port</code>). Omit to use
+                    direct or server WARP egress, or send <code>"direct"</code> to bypass it. Invalid
+                    values return <code>422</code>. See <a href="#guides" class="guide-link" data-open-guide="guideProxies">Proxy guide</a>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">force_browser</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Set <code>true</code> to skip fast-path and force headless browser execution.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">force_http</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Set <code>true</code> for HTTP only: never escalate to the browser; the raw response (even 403 or a challenge page) is returned as-is. Cannot be combined with <code>force_browser</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">cf_wait</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">float</span></td>
+                  <td><span class="param-default">25.0</span></td>
+                  <td>Maximum wait seconds for Turnstile settlement in browser (early-exits immediately upon resolution).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">session_id</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Isolated session identifier (e.g. <code>task-dl-1</code>). Prevents cookie/session collisions between concurrent multi-step scraping tasks while sharing root-domain Cloudflare clearance.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">wait_for_selector</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>CSS selector that must exist in live DOM before returning. Forces browser escalation if fast-path HTML lacks it (useful for client-rendered dynamic buttons).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">click_selector</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>CSS selector to click once the page/Turnstile is resolved. Waits while the element is disabled, then reports what the click did: every navigation hop in <code>redirect_chain</code> (url, status, location) and the file's address if it started a download (the file itself is never fetched). Implies <code>force_browser</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">cookie_ttl</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">integer</span></td>
+                  <td><span class="param-default">86400</span></td>
+                  <td>Cookie cache retention duration in seconds (default 24 hours).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">inject_cookies</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">object</span></td>
+                  <td><span class="param-default">{}</span></td>
+                  <td>Custom cookies to inject into this request before navigation.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">cookie_allowlist</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string[] | null</span></td>
+                  <td><span class="param-default">null (auto)</span></td>
+                  <td>Allowed cookie names or glob/regex patterns (e.g.
+                    <code>["cf_*", "__cf*", "PHPSESSID", "token_*"]</code>). Filters out junk/tracking cookies.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">cookie_limit</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">integer</span></td>
+                  <td><span class="param-default">35</span></td>
+                  <td>Maximum number of cookies allowed in request header before truncating oldest to prevent HTTP 400
+                    buffer overflow.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">selector</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>CSS selector to parse and extract from HTML on the server.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">selector_all</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">boolean</span></td>
+                  <td><span class="param-default">false</span></td>
+                  <td>Return all matching elements (<code>true</code>) or first match (<code>false</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">selector_attr</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">"text"</span></td>
+                  <td>Attribute to extract: <code>"text"</code>, <code>"html"</code>, <code>"href"</code>,
+                    <code>"src"</code>, etc.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-bottom: 8px; font-size: 0.95rem;">Response Schema</h4>
+          <div class="code-block-wrapper">
+            <div class="code-block-header">
+              <span>JSON Response</span>
+              <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+            </div>
+            <pre><code>{
+  <span class="json-key">"status_code"</span>: <span class="json-number">200</span>,
+  <span class="json-key">"headers"</span>: { <span class="json-key">"content-type"</span>: <span class="json-string">"text/html; charset=UTF-8"</span> },
+  <span class="json-key">"body"</span>: <span class="json-string">"&lt;!DOCTYPE html&gt;..."</span>,
+  <span class="json-key">"cookies"</span>: { <span class="json-key">"cf_clearance"</span>: <span class="json-string">"..."</span>, <span class="json-key">"session"</span>: <span class="json-string">"..."</span> },
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/protected-page"</span>,
+  <span class="json-key">"protocol"</span>: <span class="json-string">"h2"</span>,
+  <span class="json-key">"extracted"</span>: <span class="json-null">null</span>,
+  <span class="json-key">"meta"</span>: {
+    <span class="json-key">"via"</span>: <span class="json-string">"http"</span>,                   <span class="json-comment">// "http" or "browser"</span>
+    <span class="json-key">"request_type"</span>: <span class="json-string">"http_request"</span>,    <span class="json-comment">// "http_request" or "browser"</span>
+    <span class="json-key">"preset"</span>: <span class="json-string">"chrome-latest-windows"</span>,
+    <span class="json-key">"cf_bypass_attempted"</span>: <span class="json-boolean">false</span>,
+    <span class="json-key">"cache_hit"</span>: <span class="json-boolean">true</span>,                <span class="json-comment">// True if served from cached session</span>
+    <span class="json-key">"cookies_used"</span>: <span class="json-number">2</span>,
+    <span class="json-key">"body_truncated"</span>: <span class="json-boolean">false</span>,        <span class="json-comment">// true: body skipped/cut (video, archive, over MAX_RESPONSE_MB)</span>
+    <span class="json-key">"body_note"</span>: <span class="json-null">null</span>               <span class="json-comment">// reason when body_truncated is true</span>
+  }
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /solve-turnstile -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" style="cursor: pointer;" onclick="toggleEndpointCard('bodySolveTurnstile', this)">
+          <div class="endpoint-path">
+            <span class="badge-method method-post">POST</span>
+            <span>/solve-turnstile</span>
+          </div>
+          <button type="button" class="btn-endpoint-toggle is-collapsed" aria-expanded="false" aria-label="Toggle details">
+            <span class="endpoint-toggle-label">Show</span>
+            <svg class="svg-icon endpoint-chevron" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+        </div>
+        <div class="endpoint-body is-collapsed" id="bodySolveTurnstile">
+          <p class="endpoint-desc">
+            Directly solves a Cloudflare Turnstile challenge and obtains a single-use token from the target widget's <code>sitekey</code> and origin <code>siteurl</code>. Uses route interception to avoid downloading third-party page assets.
+          </p>
+
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Request Parameters (JSON Body)</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Requirement</th>
+                  <th>Type</th>
+                  <th>Default</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="param-name">sitekey</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">—</span></td>
+                  <td>Turnstile widget sitekey (0x...). Strictly validated against <code>^[A-Za-z0-9_-]{1,128}$</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">siteurl</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">—</span></td>
+                  <td>Full URL of the origin domain the sitekey is authorized for (e.g. <code>https://example.com/protected-form</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">timeout</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">integer</span></td>
+                  <td><span class="param-default">30</span></td>
+                  <td>Max seconds to wait for the browser worker to solve the widget (5 to 120s). Returns <code>504</code> on timeout.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">proxy</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Egress proxy for the solve session. Omit for direct/WARP connection.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-bottom: 8px; font-size: 0.95rem;">Response Schema</h4>
+          <div class="code-block-wrapper">
+            <div class="code-block-header">
+              <span>JSON Response</span>
+              <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+            </div>
+            <pre><code>{
+  <span class="json-key">"solved"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"token"</span>: <span class="json-string">"0.m9V_sample_turnstile_response_token_..."</span>,
+  <span class="json-key">"elapsed"</span>: <span class="json-number">2.45</span>,
+  <span class="json-key">"siteurl"</span>: <span class="json-string">"https://example.com/protected-form"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-null">null</span>
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+    </section>
+

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from urllib.parse import urlparse
+
+import httpcloak
 from fastapi import APIRouter
 
-from app.core.browser import BrowserJobTimeout, BrowserPoolBusy, pool
+from app.core.browser import BrowserJobTimeout, BrowserPoolBusy, ProxySolvingDisabled, pool
 from app.core.cookie_store import store
-from app.core.fetcher import has_turnstile_widget, httpcloak_fetch
+from app.core.fetcher import httpcloak_fetch
 from app.core.proxy import is_proxy_error, mask_proxy, proxy_key, redact, resolve_proxy
 from app.schemas.scraping import FetchRequest, FetchResponse, RequestMeta
 
@@ -21,7 +24,8 @@ router = APIRouter()
 from collections import OrderedDict
 
 _MAX_REDIRECTS = 1000
-_redirect_cache: OrderedDict[str, str] = OrderedDict()
+_REDIRECT_TTL_SEC = 3600.0
+_redirect_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
 
 # Global primitives for Request Coalescing (Thundering Herd protection)
@@ -30,7 +34,7 @@ _coalesce_lock: asyncio.Lock = asyncio.Lock()
 
 
 def _cache_redirect(host: str, url: str) -> None:
-    """Store redirect hostname with LRU eviction to prevent 403 loops on naked domains."""
+    """Store redirect hostname with LRU eviction and TTL to prevent 403 loops on naked domains."""
     parsed_final = urlparse(url)
     if (
         parsed_final.hostname
@@ -41,7 +45,20 @@ def _cache_redirect(host: str, url: str) -> None:
             _redirect_cache.move_to_end(host)
         elif len(_redirect_cache) >= _MAX_REDIRECTS:
             _redirect_cache.popitem(last=False)
-        _redirect_cache[host] = parsed_final.netloc
+        _redirect_cache[host] = (parsed_final.netloc, time.monotonic() + _REDIRECT_TTL_SEC)
+
+
+def _get_redirect_netloc(host: str) -> str | None:
+    """Fetch active non-expired redirect target netloc for a host."""
+    entry = _redirect_cache.get(host)
+    if not entry:
+        return None
+    netloc, expires_at = entry
+    if time.monotonic() > expires_at:
+        _redirect_cache.pop(host, None)
+        return None
+    _redirect_cache.move_to_end(host)
+    return netloc
 
 
 def clear_redirect_cache(host: str | None = None) -> None:
@@ -58,16 +75,39 @@ def clear_redirect_cache(host: str | None = None) -> None:
         _redirect_cache.clear()
 
 
+def _available_presets() -> frozenset[str]:
+    global _PRESETS
+    if _PRESETS is None:
+        try:
+            _PRESETS = frozenset(httpcloak.available_presets())
+        except Exception:
+            _PRESETS = frozenset()
+    return _PRESETS
+
+
+_PRESETS: frozenset[str] | None = None
+
+
 def _preset_for_ua(ua: str | None) -> str | None:
-    """Map the browser UA that earned the cookies onto the closest httpcloak TLS preset."""
+    """Map the browser UA that earned the cookies onto the httpcloak preset of the same Chrome major and OS.
+
+    cf_clearance is bound to the UA, and a `chrome-latest-*` preset sends `sec-ch-ua` for a newer major than the
+    browser's UA header claims: that mismatch gets the reused clearance re-challenged. Falls back to the newest
+    preset not newer than the browser, then to `chrome-latest-*`.
+    """
     if not ua:
         return None
     low = ua.lower()
     if "firefox" in low:
         return "firefox-latest"
-    if "linux" in low and "android" not in low:
-        return "chrome-latest-linux"
-    return "chrome-latest-windows"
+    os_name = "linux" if "linux" in low and "android" not in low else "macos" if "mac os x" in low else "windows"
+    major = re.search(r"chrome/(\d+)", low)
+    presets = _available_presets()
+    if major and presets:
+        for v in range(int(major.group(1)), int(major.group(1)) - 10, -1):
+            if f"chrome-{v}-{os_name}" in presets:
+                return f"chrome-{v}-{os_name}"
+    return f"chrome-latest-{os_name}"
 
 
 def _extract(html: str, selector: str, attr: str, all_matches: bool) -> list[str]:
@@ -115,10 +155,19 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     host = store.host_of(req.url)
 
-    # Egress identity: explicit proxy > "direct" opt-out > DEFAULT_PROXY routing rule
-    proxy = resolve_proxy(req.proxy, host)
+    # Egress: an explicit proxy (or 'direct') pins both engines. Otherwise the HTTP engine goes direct and only the
+    # browser uses the default egress (WARP_PROXY); once that browser has earned clearance for this host, HTTP
+    # follows it there, because cf_clearance is only honoured from the IP that earned it.
+    if req.proxy:
+        proxy = browser_egress = resolve_proxy(req.proxy, host)
+    else:
+        browser_egress = resolve_proxy(None, host)
+        proxy = None
+        if browser_egress and store.get(store.cache_key(host, req.session_id, proxy_key(browser_egress))):
+            proxy = browser_egress
     req = req.model_copy(update={"proxy": proxy})
     identity = proxy_key(proxy)
+    browser_cache_key = store.cache_key(host, req.session_id, proxy_key(browser_egress))
 
     # cf_clearance is bound to the egress IP, UA and TLS fingerprint that earned it: cookies live in a per-proxy namespace
     cache_key = store.cache_key(host, req.session_id, identity)
@@ -137,7 +186,10 @@ async def fetch(req: FetchRequest) -> FetchResponse:
     cache_hit = bool(cached_cookies)
 
     logs.append(f"[INIT] Request initialized for target: {req.url} (Method: {req.method})")
-    logs.append(f"[PROXY] Egress via {mask_proxy(proxy)}")
+    if browser_egress == proxy:
+        logs.append(f"[PROXY] Egress via {mask_proxy(proxy)}")
+    else:
+        logs.append(f"[PROXY] HTTP egress via {mask_proxy(proxy)}; browser escalation via {mask_proxy(browser_egress)}")
 
     session_label = f" (Session: {req.session_id})" if req.session_id else ""
     if cache_hit:
@@ -171,12 +223,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         logs.append(f"[IDENTITY] Sticky identity from cache: egress={mask_proxy(proxy)} preset={req.preset}")
 
     # 1. Fast path: Direct fingerprint HTTP request
-    auto_capture = False
-    force_browser = req.force_browser or req.capture_token or bool(req.token_field_names) or bool(req.click_selector)
+    force_browser = req.force_browser or bool(req.click_selector)
     if not force_browser:
         target_url = req.url
-        if effective_cookies and host in _redirect_cache:
-            cached_netloc = _redirect_cache[host]
+        cached_netloc = _get_redirect_netloc(host)
+        if effective_cookies and cached_netloc:
             parsed_req = urlparse(req.url)
             if parsed_req.netloc != cached_netloc:
                 target_url = parsed_req._replace(netloc=cached_netloc).geturl()
@@ -231,7 +282,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 ),
             )
 
-        if proxy and result.error and is_proxy_error(result.error):
+        if proxy and proxy == browser_egress and result.error and is_proxy_error(result.error):
             # The browser would go through the same dead proxy: fail fast instead of burning a browser solve
             proxy_err = redact(result.error)
             logs.append(f"[PROXY-FAIL] {mask_proxy(proxy)}: {proxy_err}")
@@ -258,8 +309,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
         selector_missing = bool(
             req.wait_for_selector and not result.cf_wall and not _selector_present(result.body, req.wait_for_selector)
         )
-        needs_token = bool(req.auto_token and not result.cf_wall and has_turnstile_widget(result.body))
-        if not result.cf_wall and not selector_missing and not needs_token:
+        if not result.cf_wall and not selector_missing:
             logs.append(f"[HTTP-SUCCESS] Received HTTP {result.status_code} ({result.protocol or 'h2'}) in {result.elapsed_ms}ms (No challenge wall)")
             if result.cookies:
                 merged = {**effective_cookies, **result.cookies}
@@ -309,10 +359,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             )
 
         # Log detailed failure reason on HTTP fast-path
-        if needs_token:
-            logs.append("[HTTP-WIDGET] Page embeds a Turnstile widget -> Escalating to Browser Solver to capture token (auto_token)")
-            auto_capture = True
-        elif selector_missing:
+        if selector_missing:
             logs.append(f"[HTTP-INCOMPLETE] HTTP {result.status_code} lacks selector '{req.wait_for_selector}' (rendered client-side)")
             logs.append("[ESCALATE] Dynamic content required -> Escalating to Browser Solver")
         elif result.error:
@@ -325,7 +372,7 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             logs.append(f"[HTTP-INTERSTITIAL] Interstitial verification screen detected (HTTP {result.status_code}) in {result.elapsed_ms}ms")
             logs.append("[ESCALATE] Challenge detected -> Escalating to Browser Solver")
 
-        if result.cf_wall and cache_hit:
+        if result.cf_wall and cache_hit and not result.error:
             # Preserve application session cookies so multi-step stateful flows (e.g. a login session) do not expire
             app_cookies = {
                 k: v for k, v in cached_cookies.items()
@@ -338,14 +385,18 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
         logger.info("⚠ Challenge wall detected for %s (status=%d) — routing to browser engine", host, result.status_code)
     else:
-        logs.append("[FORCE] browser forced (force_browser/capture_token) set in request -> Bypassing fast-path, routing directly to Browser Solver")
+        logs.append("[FORCE] browser forced (force_browser/click_selector) set in request -> Bypassing fast-path, routing directly to Browser Solver")
 
-    # 2. Slow path: Cloudflare bypass via browser pool
+    # 2. Slow path: Cloudflare bypass via browser pool. From here on the request runs as the browser's egress
+    # identity: coalescing, the waiters' HTTP retry and the cookies it harvests all belong to that IP
+    if browser_egress != proxy:
+        req = req.model_copy(update={"proxy": browser_egress})
+        cache_key = browser_cache_key
     is_solver = True
     wait_event = None
     
     # Do not coalesce if force_browser=True, page-specific selector is required, or isolated session_id is provided
-    if not force_browser and not auto_capture and not req.wait_for_selector and not req.session_id:
+    if not force_browser and not req.wait_for_selector and not req.session_id:
         async with _coalesce_lock:
             if cache_key in _coalesce_events:
                 is_solver = False
@@ -367,11 +418,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             retry_headers["user-agent"] = new_ua
             
         retry_target_url = req.url
-        if retry_cookies and host in _redirect_cache:
-            cached_netloc = _redirect_cache[host]
+        retry_cached_netloc = _get_redirect_netloc(host)
+        if retry_cookies and retry_cached_netloc:
             parsed_req = urlparse(req.url)
-            if parsed_req.netloc != cached_netloc:
-                retry_target_url = parsed_req._replace(netloc=cached_netloc).geturl()
+            if parsed_req.netloc != retry_cached_netloc:
+                retry_target_url = parsed_req._replace(netloc=retry_cached_netloc).geturl()
                 logs.append(f"[REDIRECT-CACHE] Rewriting target hostname for retry: {retry_target_url}")
 
         retry_res = await httpcloak_fetch(
@@ -411,11 +462,14 @@ async def fetch(req: FetchRequest) -> FetchResponse:
                 ),
             )
         else:
-            logs.append(f"[HTTP-RETRY] Still blocked (HTTP {retry_res.status_code}). Failing coalesced request.")
+            logs.append(
+                f"[HTTP-RETRY] Still blocked (HTTP {retry_res.status_code}{', ' + retry_res.error if retry_res.error else ''}). "
+                "Failing coalesced request."
+            )
             return FetchResponse(
-                 status_code=retry_res.status_code,
+                 status_code=retry_res.status_code or 502,
                  headers={},
-                 body="Cloudflare bypass failed on coalesced retry",
+                 body=f"HTTP request failed: {retry_res.error}" if retry_res.error else "Cloudflare bypass failed on coalesced retry",
                  cookies={},
                  url=req.url,
                  protocol="h2",
@@ -433,12 +487,11 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             page_load_state=req.page_load_state,
             cookies=effective_cookies,
             wait_for_selector=req.wait_for_selector,
-            capture_token=req.capture_token or bool(req.token_field_names) or auto_capture,
-            token_field_names=req.token_field_names,
             click_selector=req.click_selector,
             method=req.method,
             headers=req.headers,
             body=req.body,
+            payload_bytes=len((req.body or "").encode("utf-8")),
         )
         
         logs.extend(f"[SOLVER] {n}" for n in br.notes)
@@ -480,10 +533,6 @@ async def fetch(req: FetchRequest) -> FetchResponse:
             redirect_chain=br.redirect_chain or None,
             protocol=None,
             extracted=extracted,
-            turnstile_token=br.turnstile_token,
-            turnstile_sitekey=br.turnstile_sitekey,
-            turnstile_solved_at=br.turnstile_solved_at,
-            token_submissions=br.token_submissions or None,
             logs=logs,
             meta=RequestMeta(
                 via="browser",
@@ -500,11 +549,19 @@ async def fetch(req: FetchRequest) -> FetchResponse:
 
     except Exception as exc:
         total_ms = int((time.monotonic() - t_start) * 1000)
-        # 503: pool saturated (retry later); 504: browser job hit its hard deadline; 502: anything else upstream
-        status_code = 503 if isinstance(exc, BrowserPoolBusy) else 504 if isinstance(exc, BrowserJobTimeout) else 502
+        # 409: proxy solving disabled (MAX_BROWSERS=0); 503: pool/queue saturated (retry later);
+        # 504: browser job hit its hard deadline; 502: anything else upstream
+        status_code = (
+            409 if isinstance(exc, ProxySolvingDisabled)
+            else 503 if isinstance(exc, BrowserPoolBusy)
+            else 504 if isinstance(exc, BrowserJobTimeout)
+            else 502
+        )
         logs.append(f"[ERROR] Browser solver execution error: {redact(str(exc))} ({total_ms}ms)")
         logs.append("[FAIL] Pipeline failed to resolve request")
         logger.error("Browser engine failure on %s (%d): %s", req.url, status_code, redact(str(exc)))
+        if isinstance(exc, ProxySolvingDisabled):
+            logs.append(f"[PROXY] {redact(str(exc))}")
         return FetchResponse(
             status_code=status_code,
             headers={},

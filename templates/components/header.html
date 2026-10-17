@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anti API — High Performance Stealth Scraping Documentation</title>
+  <meta name="description"
+    content="Official documentation and interactive playground for Anti — high speed stealth scraping API combining HTTP fingerprinting and headless browser engine.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/static/index.css?v=4.2">
+  <script>
+    function toggleEndpointCard(bodyId, headerEl) {
+      var body = document.getElementById(bodyId);
+      var btn = headerEl.querySelector('.btn-endpoint-toggle');
+      var label = headerEl.querySelector('.endpoint-toggle-label');
+      if (!body) return;
+      var isCollapsed = body.classList.toggle('is-collapsed');
+      if (btn) btn.classList.toggle('is-collapsed', isCollapsed);
+      if (label) label.textContent = isCollapsed ? 'Show' : 'Hide';
+    }
+  </script>
+</head>
+
+<body>
+  <div class="bg-glow"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="container header-inner">
+      <a href="/" class="brand">
+        <div class="brand-icon">
+          <svg class="svg-icon" style="width:22px;height:22px" viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <div class="brand-text">Anti API</div>
+        <span class="brand-badge">v2.0</span>
+      </a>
+
+      <div class="nav-links">
+        <a href="/docs" target="_blank" class="nav-link nav-link-docs" style="color:var(--accent-cyan);font-weight:600;font-size:0.8rem;">Swagger ↗</a>
+        <div class="status-badge" id="headerKeyBadge" style="background:rgba(234,88,12,0.1);border-color:rgba(234,88,12,0.25);color:var(--accent-orange);cursor:pointer;" title="Click to view or edit API Key">
+          <span class="status-dot" id="headerKeyDot" style="background:var(--accent-orange);box-shadow:0 0 8px var(--accent-orange);"></span>
+          <span id="headerKeyText">Key Required</span>
+        </div>
+        <div class="status-badge" id="liveStatusBadge">
+          <span class="status-dot"></span>
+          <span id="statusText">Online</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">

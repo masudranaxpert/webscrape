@@ -33,8 +33,7 @@ def _run(site, path, click=None):
     srv, base = site
 
     async def go():
-        pool = BrowserPool(max_tabs=2, headless=False, max_lifetime_sec=300, max_browsers=1, geoip=False,
-                           licensed_identity="proxy")
+        pool = BrowserPool(max_tabs=2, headless=False, max_lifetime_sec=300, max_browsers=1, geoip=False)
         await pool.start()
         try:
             srv.video_mb_sent = 0

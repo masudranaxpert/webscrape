@@ -12,7 +12,18 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="/static/index.css?v=3.3">
+  <link rel="stylesheet" href="/static/index.css?v=4.2">
+  <script>
+    function toggleEndpointCard(bodyId, headerEl) {
+      var body = document.getElementById(bodyId);
+      var btn = headerEl.querySelector('.btn-endpoint-toggle');
+      var label = headerEl.querySelector('.endpoint-toggle-label');
+      if (!body) return;
+      var isCollapsed = body.classList.toggle('is-collapsed');
+      if (btn) btn.classList.toggle('is-collapsed', isCollapsed);
+      if (label) label.textContent = isCollapsed ? 'Show' : 'Hide';
+    }
+  </script>
 </head>
 
 <body>
@@ -28,85 +39,110 @@
           </svg>
         </div>
         <div class="brand-text">Anti API</div>
-        <span class="brand-badge">v1.0</span>
+        <span class="brand-badge">v2.0</span>
       </a>
 
       <div class="nav-links">
-        <a href="#playground" class="nav-link">Playground</a>
-        <a href="#cache" class="nav-link">Cache Explorer</a>
-        <a href="#endpoints" class="nav-link">Endpoints</a>
-        <a href="#guides" class="nav-link">Guides</a>
-        <a href="/docs" target="_blank" class="nav-link" style="color:var(--accent-cyan);font-weight:600;">Swagger Docs ↗</a>
+        <a href="/docs" target="_blank" class="nav-link nav-link-docs" style="color:var(--accent-cyan);font-weight:600;font-size:0.8rem;">Swagger ↗</a>
         <div class="status-badge" id="headerKeyBadge" style="background:rgba(234,88,12,0.1);border-color:rgba(234,88,12,0.25);color:var(--accent-orange);cursor:pointer;" title="Click to view or edit API Key">
           <span class="status-dot" id="headerKeyDot" style="background:var(--accent-orange);box-shadow:0 0 8px var(--accent-orange);"></span>
-          <span id="headerKeyText">API Key Required</span>
+          <span id="headerKeyText">Key Required</span>
         </div>
         <div class="status-badge" id="liveStatusBadge">
           <span class="status-dot"></span>
-          <span id="statusText">Connecting...</span>
+          <span id="statusText">Online</span>
         </div>
       </div>
     </div>
   </header>
 
   <main class="container">
+
     <!-- Hero Section -->
     <section class="hero">
       <h1 class="hero-title">High-Speed Stealth Scraping<br><span>Cloudflare Turnstile Auto-Bypass</span></h1>
-      <p class="hero-desc">
-        Dual-engine stealth pipeline: ultra-fast fingerprint-spoofed HTTP requests with automated fallback to persistent
-        headless browser resolution.
-      </p>
     </section>
 
     <!-- Architecture Grid -->
     <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon-wrapper icon-cyan">
-          <svg class="svg-icon" viewBox="0 0 24 24">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-          </svg>
+      <div class="feature-card card-accent-orange">
+        <div class="feature-card-header">
+          <div class="feature-icon-wrapper icon-orange">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
+          <span class="feature-metric-pill pill-orange">~300ms Fast</span>
         </div>
-        <h2 class="feature-title">Fast-Path HTTP Engine</h2>
-        <p class="feature-text">Wire-level browser fingerprinting. Spoofs TLS ClientHello, H2/H3 frames, and TCP stack
-          for ~300ms speeds.</p>
+        <h3 class="feature-title">Fast-Path HTTP Engine</h3>
+        <p class="feature-text">Wire-level browser fingerprinting. Spoofs TLS ClientHello, H2/H3 frames, and TCP stack for maximum throughput.</p>
+        <div class="feature-card-footer">
+          <span class="feature-tag">
+            <span class="feature-tag-dot dot-orange"></span>
+            TLS &amp; Network Wire
+          </span>
+        </div>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon-wrapper icon-purple">
-          <svg class="svg-icon" viewBox="0 0 24 24">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          </svg>
+      <div class="feature-card card-accent-purple">
+        <div class="feature-card-header">
+          <div class="feature-icon-wrapper icon-purple">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+          </div>
+          <span class="feature-metric-pill pill-purple">Auto-Bypass</span>
         </div>
-        <h2 class="feature-title">Headless Browser Solver</h2>
-        <p class="feature-text">Persistent Chrome process with tab pooling. Automatically detects and clicks Cloudflare
-          Turnstile challenges.</p>
+        <h3 class="feature-title">Headless Browser Solver</h3>
+        <p class="feature-text">Persistent Chrome process with tab pooling. Automatically detects and clicks Cloudflare Turnstile challenges.</p>
+        <div class="feature-card-footer">
+          <span class="feature-tag">
+            <span class="feature-tag-dot dot-purple"></span>
+            CloakBrowser Engine
+          </span>
+        </div>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon-wrapper icon-green">
-          <svg class="svg-icon" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M8 12h8" />
-            <path d="M12 8v8" />
-          </svg>
+      <div class="feature-card card-accent-green">
+        <div class="feature-card-header">
+          <div class="feature-icon-wrapper icon-green">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 12h8" />
+              <path d="M12 8v8" />
+            </svg>
+          </div>
+          <span class="feature-metric-pill pill-green">LRU 24h</span>
         </div>
-        <h2 class="feature-title">Domain Cookie Store</h2>
-        <p class="feature-text">In-memory LRU cookie jar. Harvests <code>cf_clearance</code> and session cookies to skip
-          subsequent challenges completely.</p>
+        <h3 class="feature-title">Domain Cookie Store</h3>
+        <p class="feature-text">In-memory cookie jar. Harvests <code>cf_clearance</code> and session cookies to skip subsequent challenges completely.</p>
+        <div class="feature-card-footer">
+          <span class="feature-tag">
+            <span class="feature-tag-dot dot-green"></span>
+            Session Sandboxed
+          </span>
+        </div>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon-wrapper icon-amber">
-          <svg class="svg-icon" viewBox="0 0 24 24">
-            <polyline points="23 4 23 10 17 10" />
-            <polyline points="1 20 1 14 7 14" />
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-          </svg>
+      <div class="feature-card card-accent-cyan">
+        <div class="feature-card-header">
+          <div class="feature-icon-wrapper icon-cyan">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+          </div>
+          <span class="feature-metric-pill pill-cyan">Smart Hop</span>
         </div>
-        <h2 class="feature-title">Dynamic Redirect Cache</h2>
-        <p class="feature-text">Learns post-challenge destination hosts and routes repeat requests directly to final
-          URLs on the fast path.</p>
+        <h3 class="feature-title">Dynamic Redirect Cache</h3>
+        <p class="feature-text">Learns post-challenge destination hosts and routes repeat requests directly to final URLs on the fast path.</p>
+        <div class="feature-card-footer">
+          <span class="feature-tag">
+            <span class="feature-tag-dot dot-cyan"></span>
+            Zero Latency Hop
+          </span>
+        </div>
       </div>
     </div>
 
@@ -125,7 +161,6 @@
               <span class="vault-title">Authentication Vault</span>
               <span class="vault-status-pill" id="vaultStatusPill">Key Required</span>
             </div>
-            <p class="vault-subtitle">Requests in this studio and the Cache Explorer require a valid <code>X-API-Key</code>. Saved securely in your browser's LocalStorage.</p>
           </div>
         </div>
         <div class="vault-action-group">
@@ -133,7 +168,7 @@
             <input type="password" id="globalApiKeyInput" class="vault-input" placeholder="Enter X-API-Key (e.g. anti_secret_...)" autocomplete="off" />
             <button type="button" class="btn-vault-toggle" id="btnToggleKeyVisibility" title="Toggle Visibility">
               <svg class="svg-icon" id="eyeIcon" viewBox="0 0 24 24">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
             </button>
@@ -153,7 +188,7 @@
 
     <!-- Full-Featured Stealth Request Studio -->
     <section class="section-box" id="playground">
-      <div class="section-header">
+      <div class="section-header studio-master-header">
         <div class="section-title-wrap">
           <h2 class="section-title">
             <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24">
@@ -164,378 +199,555 @@
             Stealth Request Studio
           </h2>
         </div>
-        <div class="studio-presets">
-          <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Presets:</span>
-          <button type="button" class="btn-preset" data-preset="httpbin">HTTPBin GET</button>
-          <button type="button" class="btn-preset" data-preset="redirects">Redirect Chain</button>
-          <button type="button" class="btn-preset" data-preset="turnstile">Turnstile Token</button>
-          <button type="button" class="btn-preset" data-preset="post_json">POST JSON Body</button>
+
+        <!-- Studio Master Mode Switcher Tabs -->
+        <div class="studio-mode-tabs" role="tablist" aria-label="Studio Modes">
+          <button type="button" class="studio-mode-tab active" id="tabModeFetch" role="tab" aria-selected="true" data-mode="fetch">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            <span>Scraping &amp; Request Studio</span>
+            <span class="studio-tab-pill">HTTP / Browser</span>
+          </button>
+          <button type="button" class="studio-mode-tab" id="tabModeTurnstile" role="tab" aria-selected="false" data-mode="turnstile">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span>Turnstile Token Solver</span>
+            <span class="studio-tab-pill studio-pill-accent">0x Sitekey</span>
+          </button>
         </div>
       </div>
 
-      <form id="fetchForm" class="studio-form">
-        <!-- Main Command Bar -->
-        <div class="studio-command-bar">
-          <div class="method-selector-wrap">
-            <select id="requestMethod" class="method-select method-get">
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-              <option value="PUT">PUT</option>
-              <option value="DELETE">DELETE</option>
-              <option value="PATCH">PATCH</option>
-              <option value="HEAD">HEAD</option>
-            </select>
+      <!-- ================= MODE 1: SCRAPING & FETCH STUDIO ================= -->
+      <div class="studio-mode-pane active" id="paneModeFetch">
+        <div class="studio-sub-bar">
+          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:600;">Presets:</span>
+          <div class="studio-presets">
+            <button type="button" class="btn-preset" data-preset="httpbin">HTTPBin GET</button>
+            <button type="button" class="btn-preset" data-preset="redirects">Redirect Chain</button>
+            <button type="button" class="btn-preset" data-preset="post_json">POST JSON Body</button>
           </div>
-          <div class="url-input-wrap">
-            <svg class="svg-icon input-icon" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page" value="https://httpbin.org/get" required />
-            <button type="button" class="btn-input-clear" id="btnClearUrl" title="Clear URL">&times;</button>
-          </div>
-          <button type="button" class="btn-toggle-config" id="btnToggleConfig" aria-expanded="false" aria-controls="studioConfigCard" title="Toggle Request Options (Engine, Proxy, Headers, Body, Turnstile)">
-            <svg class="svg-icon" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            <span class="btn-toggle-label">Options</span>
-            <span class="active-config-dot" id="activeConfigDot" style="display:none" title="Custom configuration active"></span>
-            <svg class="svg-icon chevron-icon" id="configChevron" viewBox="0 0 24 24">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-          <button type="submit" id="submitBtn" class="btn-send">
-            <svg class="svg-icon btn-send-icon" id="btnIcon" viewBox="0 0 24 24">
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            <span id="btnLabel">Send Request</span>
-            <kbd class="kbd-shortcut">↵</kbd>
-          </button>
         </div>
 
-        <!-- Studio Configuration Drawer (Hidden by default, toggled via Options button) -->
-        <div class="studio-config-card" id="studioConfigCard">
-          <div class="config-tabs-nav">
-            <div class="config-tabs-scroll">
-              <button type="button" class="config-tab-btn active" data-cfg="cfgEngine">
-                <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Engine & Network
-              </button>
-              <button type="button" class="config-tab-btn" data-cfg="cfgHeaders">
-                <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                Headers & Body
-              </button>
-              <button type="button" class="config-tab-btn" data-cfg="cfgTurnstile">
-                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                Turnstile & Automation
-              </button>
-              <button type="button" class="config-tab-btn" data-cfg="cfgExtract">
-                <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                DOM Extraction
-              </button>
-              <button type="button" class="config-tab-btn" data-cfg="cfgCookies">
-                <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
-                Session & Cookies
-              </button>
+        <form id="fetchForm" class="studio-form">
+          <!-- Main Command Bar -->
+          <div class="studio-command-bar">
+            <div class="method-selector-wrap">
+              <select id="requestMethod" class="method-select method-get">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+                <option value="PATCH">PATCH</option>
+                <option value="HEAD">HEAD</option>
+              </select>
             </div>
-            <button type="button" class="btn-close-config" id="btnCloseConfig" title="Hide Options">
-              <span>Done</span>
-              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
+            <div class="url-input-wrap">
+              <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page" value="https://httpbin.org/get" required />
+              <button type="button" class="btn-input-clear" id="btnClearUrl" title="Clear URL">&times;</button>
+            </div>
+            <button type="button" class="btn-toggle-config" id="btnToggleConfig" aria-expanded="false" aria-controls="studioConfigCard" title="Toggle Request Options (Engine, Proxy, Headers, Body, Automation)">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              <span class="btn-toggle-label">Options</span>
+              <span class="active-config-dot" id="activeConfigDot" style="display:none" title="Custom configuration active"></span>
+              <svg class="svg-icon chevron-icon" id="configChevron" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <button type="submit" id="submitBtn" class="btn-send">
+              <svg class="svg-icon btn-send-icon" id="btnIcon" viewBox="0 0 24 24">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <span id="btnLabel">Send Request</span>
+              <kbd class="kbd-shortcut">↵</kbd>
             </button>
           </div>
 
-          <div class="config-tabs-content">
-            <!-- Tab 1: Engine & Network -->
-            <div class="config-pane active" id="cfgEngine">
-              <div class="cfg-grid-3">
-                <div class="cfg-field">
-                  <label class="cfg-label">Engine Routing Mode</label>
-                  <select id="cfgEngineMode" class="cfg-select">
-                    <option value="auto" selected>Auto (HTTP + Browser escalation)</option>
-                    <option value="browser">Force Browser (Full automation)</option>
-                    <option value="http">Force HTTP (Fast-path only)</option>
-                  </select>
-                  <span class="cfg-hint">Checks cookie cache first; escalates to browser only on challenge walls.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Fingerprint Preset</label>
-                  <select id="cfgPreset" class="cfg-select">
-                    <option value="chrome-latest-windows" selected>Chrome (Windows) — Recommended</option>
-                    <option value="chrome-latest-linux">Chrome (Linux)</option>
-                    <option value="firefox-latest">Firefox (Modern)</option>
-                  </select>
-                  <span class="cfg-hint">Sets matching TLS cipher suites, ALPN, and pseudo-header sequence.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">HTTP Protocol Version</label>
-                  <select id="cfgHttpVersion" class="cfg-select">
-                    <option value="" selected>Auto / Negotiated (Default)</option>
-                    <option value="h2">HTTP/2 (h2)</option>
-                    <option value="h1">HTTP/1.1 (h1)</option>
-                    <option value="h3">HTTP/3 (h3)</option>
-                  </select>
-                  <span class="cfg-hint">Forces specific HTTP wire protocol negotiation.</span>
-                </div>
-              </div>
-              <div class="cfg-grid-3" style="margin-top:16px;">
-                <div class="cfg-field" style="grid-column:span 2;">
-                  <label class="cfg-label">Egress Proxy URL</label>
-                  <div class="input-with-action">
-                    <input type="text" id="cfgProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for server default)" />
-                    <button type="button" class="btn-cfg-action" id="btnTestUserProxy" title="Insert User Proxy">Paste Saved</button>
-                  </div>
-                  <span class="cfg-hint">Supports HTTP, HTTPS, and SOCKS5 (with authentication). Pass <code>direct</code> to bypass server proxy.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Timeout (Seconds)</label>
-                  <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
-                  <span class="cfg-hint">Max request execution timeout window.</span>
-                </div>
-              </div>
-              <div class="cfg-grid-1" style="margin-top:16px;">
-                <div class="cfg-field">
-                  <label class="cfg-label">Custom User-Agent Override (Optional)</label>
-                  <input type="text" id="cfgUserAgent" class="cfg-input" placeholder="Leave blank to use preset's authentic browser User-Agent" />
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab 2: Headers & Body -->
-            <div class="config-pane" id="cfgHeaders">
-              <div class="cfg-split-view">
-                <div class="cfg-col">
-                  <div class="cfg-col-header">
-                    <label class="cfg-label" style="margin:0;">Custom Outbound Headers</label>
-                    <button type="button" class="btn-add-kv" id="btnAddHeaderRow">+ Add Header</button>
-                  </div>
-                  <div id="headersKvContainer" class="kv-container">
-                    <!-- Dynamic Key-Value Rows -->
-                  </div>
-                  <span class="cfg-hint">Custom headers are merged into the preset browser's natural pseudo-header sequence.</span>
-                </div>
-                <div class="cfg-col">
-                  <div class="cfg-col-header">
-                    <label class="cfg-label" style="margin:0;">Request Body Payload (POST / PUT / PATCH)</label>
-                    <button type="button" class="btn-add-kv" id="btnFormatBodyJson">Format JSON</button>
-                  </div>
-                  <textarea id="cfgBody" class="cfg-textarea" placeholder='{"key": "value"}' rows="6"></textarea>
-                  <span class="cfg-hint">Raw text or JSON payload. Automatically active for non-GET methods.</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab 3: Turnstile & Automation -->
-            <div class="config-pane" id="cfgTurnstile">
-              <div class="cfg-grid-2">
-                <div class="cfg-field">
-                  <label class="cfg-label">Wait For CSS Selector (`wait_for_selector`)</label>
-                  <input type="text" id="cfgWaitForSelector" class="cfg-input" placeholder="e.g. .download-btn, #results-table" />
-                  <span class="cfg-hint">DOM element that must appear before returning. Forces browser if fast-path lacks it.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Click CSS Selector (`click_selector`)</label>
-                  <input type="text" id="cfgClickSelector" class="cfg-input" placeholder="e.g. button#continue, .submit-btn" />
-                  <span class="cfg-hint">Clicks element in browser once Turnstile/page resolves before capturing final DOM.</span>
-                </div>
-              </div>
-              <div class="cfg-grid-3" style="margin-top:16px;">
-                <div class="cfg-field">
-                  <label class="cfg-label">Challenge Settlement Timeout (`cf_wait`)</label>
-                  <input type="number" id="cfgCfWait" class="cfg-input" value="25.0" step="0.5" min="5" max="60" />
-                  <span class="cfg-hint">Max seconds for Cloudflare Turnstile to solve before timeout.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Page Load Strategy</label>
-                  <select id="cfgPageLoadState" class="cfg-select">
-                    <option value="complete" selected>Complete (Full load + network settlement)</option>
-                    <option value="interactive">Interactive (DOMContentLoaded)</option>
-                  </select>
-                  <span class="cfg-hint">Controls browser navigation readiness trigger.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Turnstile Automation Toggles</label>
-                  <div class="cfg-checkbox-group">
-                    <label class="toggle-control">
-                      <input type="checkbox" id="cfgCaptureToken" />
-                      <span class="toggle-label">Capture Response Token (`capture_token`)</span>
-                    </label>
-                    <label class="toggle-control">
-                      <input type="checkbox" id="cfgAutoToken" />
-                      <span class="toggle-label">Auto Detect & Solve (`auto_token`)</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab 4: DOM Extraction -->
-            <div class="config-pane" id="cfgExtract">
-              <div class="cfg-grid-3">
-                <div class="cfg-field" style="grid-column:span 2;">
-                  <label class="cfg-label">Target CSS Selector (`selector`)</label>
-                  <input type="text" id="cfgSelector" class="cfg-input" placeholder="e.g. a.download-link, h1.title, .movie-item" />
-                  <span class="cfg-hint">Runs Selectolax C-parser engine directly over the resolved HTML.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Attribute to Extract (`selector_attr`)</label>
-                  <input type="text" id="cfgSelectorAttr" class="cfg-input" value="text" placeholder="text, html, href, src, data-id..." />
-                  <span class="cfg-hint">Use <code>text</code> for inner text, <code>html</code> for outer HTML, or any HTML attribute.</span>
-                </div>
-              </div>
-              <div class="cfg-grid-2" style="margin-top:16px;">
-                <div class="cfg-field">
-                  <label class="cfg-label">Result Matching Mode</label>
-                  <select id="cfgSelectorAll" class="cfg-select">
-                    <option value="false" selected>First Match Only (Single string item)</option>
-                    <option value="true">All Matching Elements (Array of strings)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab 5: Session & Cookies -->
-            <div class="config-pane" id="cfgCookies">
-              <div class="cfg-grid-3">
-                <div class="cfg-field">
-                  <label class="cfg-label">Session Isolation ID (`session_id`)</label>
-                  <input type="text" id="cfgSessionId" class="cfg-input" placeholder="e.g. worker-task-1" />
-                  <span class="cfg-hint">Isolates cookies to this specific session namespace while sharing clearance.</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Cookie Cache TTL (Seconds)</label>
-                  <input type="number" id="cfgCookieTtl" class="cfg-input" value="86400" min="60" />
-                  <span class="cfg-hint">Duration to keep solved clearance in LRU store (Default: 86400s / 24h).</span>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label">Max Cookie Limit</label>
-                  <input type="number" id="cfgCookieLimit" class="cfg-input" value="35" min="5" max="100" />
-                  <span class="cfg-hint">Truncates oldest cookies to prevent HTTP 400 header overflow.</span>
-                </div>
-              </div>
-              <div style="margin-top:16px;">
-                <div class="cfg-col-header">
-                  <label class="cfg-label" style="margin:0;">Custom Injected Cookies (`inject_cookies`)</label>
-                  <button type="button" class="btn-add-kv" id="btnAddCookieRow">+ Add Cookie</button>
-                </div>
-                <div id="cookiesKvContainer" class="kv-container">
-                  <!-- Dynamic Key-Value Rows -->
-                </div>
-                <span class="cfg-hint">Injected into request before transmission.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </form>
-
-      <!-- Response Panel -->
-      <div class="response-panel" id="responsePanel">
-        <div class="response-metrics">
-          <div class="metric-pill" id="statusPill">Status: Idle</div>
-          <div class="metric-pill" id="viaPill">Engine: --</div>
-          <div class="metric-pill" id="cachePill">Cache: --</div>
-          <div class="metric-pill" id="protocolPill">Proto: --</div>
-          <div class="metric-pill" id="cookiesUsedPill">Cookies: 0</div>
-          <div class="metric-pill" id="timePill">Latency: -- ms</div>
-          <div class="response-quick-actions">
-            <button type="button" class="btn-quick-action" id="btnCopyJson" title="Copy JSON Response">
-              <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              <span>Copy JSON</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="tab-nav">
-          <button type="button" class="tab-btn active" data-tab="jsonTab">
-            <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            JSON Output
-          </button>
-          <button type="button" class="tab-btn" data-tab="htmlTab">
-            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            HTML Preview
-          </button>
-          <button type="button" class="tab-btn" data-tab="extractedTab">
-            <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            Extracted (<span id="extractedCount">0</span>)
-          </button>
-          <button type="button" class="tab-btn" data-tab="browserStateTab">
-            <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
-            Cookies (<span id="cookieCount">0</span>)
-          </button>
-          <button type="button" class="tab-btn" data-tab="headersTab">
-            <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            Headers
-          </button>
-          <button type="button" class="tab-btn" data-tab="logsTab">
-            <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            Pipeline Logs (<span id="logsCount">0</span>)
-          </button>
-          <button type="button" class="tab-btn" data-tab="turnstileTab" id="tabBtnTurnstile" style="display:none;">
-            <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            Turnstile Token
-          </button>
-        </div>
-
-        <div class="tab-content">
-          <!-- JSON View -->
-          <div class="tab-pane active" id="jsonTab">
-            <pre><code id="jsonOutput">// Configure request parameters above and click "Send Request"...</code></pre>
-          </div>
-
-          <!-- HTML Preview (Code + Sandboxed Iframe) -->
-          <div class="tab-pane" id="htmlTab">
-            <div class="html-preview-controls">
-              <div class="preview-mode-switch">
-                <button type="button" class="btn-preview-mode active" id="btnPreviewCode">Code Syntax</button>
-                <button type="button" class="btn-preview-mode" id="btnPreviewFrame">Rendered View (Sandbox)</button>
-              </div>
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span style="font-size:0.78rem;color:var(--text-muted);" id="htmlSizeNotice">0 bytes</span>
-                <button type="button" class="btn-quick-action" id="btnCopyHtml" title="Copy HTML Preview">
-                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                  <span>Copy HTML</span>
+          <!-- Studio Configuration Drawer -->
+          <div class="studio-config-card" id="studioConfigCard">
+            <div class="config-tabs-nav">
+              <div class="config-tabs-scroll">
+                <button type="button" class="config-tab-btn active" data-cfg="cfgEngine">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  Engine &amp; Network
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgHeaders">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  Headers &amp; Body
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgTurnstile">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Browser Automation
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgExtract">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  DOM Extraction
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgCookies">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                  Session &amp; Cookies
                 </button>
               </div>
-            </div>
-            <div id="htmlCodeContainer">
-              <pre><code id="htmlOutput">&lt;!-- Response body preview renders here --&gt;</code></pre>
-            </div>
-            <div id="htmlFrameContainer" style="display:none;">
-              <iframe id="previewIframe" class="preview-iframe" sandbox="allow-same-origin allow-scripts" title="Preview Frame"></iframe>
-            </div>
-          </div>
-
-          <!-- Extracted View -->
-          <div class="tab-pane" id="extractedTab">
-            <div class="html-preview-controls">
-              <span style="font-size:0.78rem;color:var(--text-muted);">Extracted elements matched by CSS selector</span>
-              <button type="button" class="btn-quick-action" id="btnCopyExtracted" title="Copy Extracted Content">
-                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                <span>Copy Extracted</span>
+              <button type="button" class="btn-close-config" id="btnCloseConfig" title="Hide Options">
+                <span>Done</span>
+                <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
               </button>
             </div>
-            <div id="extractedList" class="empty-tab-msg">No extraction selector specified in request.</div>
+
+            <div class="config-tabs-content">
+              <!-- Tab 1: Engine & Network -->
+              <div class="config-pane active" id="cfgEngine">
+                <div class="cfg-grid-3">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Engine Routing Mode</label>
+                    <select id="cfgEngineMode" class="cfg-select">
+                      <option value="auto" selected>Auto (HTTP + Browser escalation)</option>
+                      <option value="browser">Force Browser (Full automation)</option>
+                      <option value="http">Force HTTP (Fast-path only)</option>
+                    </select>
+                    <span class="cfg-hint">Checks cookie cache first; escalates to browser only on challenge walls.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Fingerprint Preset</label>
+                    <select id="cfgPreset" class="cfg-select">
+                      <option value="chrome-latest-windows" selected>Chrome (Windows) — Recommended</option>
+                      <option value="chrome-latest-linux">Chrome (Linux)</option>
+                      <option value="firefox-latest">Firefox (Modern)</option>
+                    </select>
+                    <span class="cfg-hint">Sets matching TLS cipher suites, ALPN, and pseudo-header sequence.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">HTTP Protocol Version</label>
+                    <select id="cfgHttpVersion" class="cfg-select">
+                      <option value="" selected>Auto / Negotiated (Default)</option>
+                      <option value="h2">HTTP/2 (h2)</option>
+                      <option value="h1">HTTP/1.1 (h1)</option>
+                      <option value="h3">HTTP/3 (h3)</option>
+                    </select>
+                    <span class="cfg-hint">Forces specific HTTP wire protocol negotiation.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-3" style="margin-top:16px;">
+                  <div class="cfg-field" style="grid-column:span 2;">
+                    <label class="cfg-label">Egress Proxy URL</label>
+                    <div class="input-with-action">
+                      <input type="text" id="cfgProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for direct/WARP)" />
+                      <button type="button" class="btn-cfg-action btn-paste-action btn-icon-only" id="btnTestUserProxy" title="Insert Saved User Proxy" aria-label="Insert user proxy">
+                        <svg class="svg-icon" viewBox="0 0 24 24">
+                          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                          <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <span class="cfg-hint">Supports HTTP, HTTPS, and SOCKS5 (with auth). Pass <code>direct</code> to bypass server egress.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Timeout (Seconds)</label>
+                    <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
+                    <span class="cfg-hint">Max request execution timeout window.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-1" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Custom User-Agent Override (Optional)</label>
+                    <input type="text" id="cfgUserAgent" class="cfg-input" placeholder="Leave blank to use preset's authentic browser User-Agent" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 2: Headers & Body -->
+              <div class="config-pane" id="cfgHeaders">
+                <div class="cfg-split-view">
+                  <div class="cfg-col">
+                    <div class="cfg-col-header">
+                      <label class="cfg-label" style="margin:0;">Custom Outbound Headers</label>
+                      <button type="button" class="btn-add-kv" id="btnAddHeaderRow">+ Add Header</button>
+                    </div>
+                    <div id="headersKvContainer" class="kv-container">
+                      <!-- Dynamic Key-Value Rows -->
+                    </div>
+                    <span class="cfg-hint">Custom headers are merged into the preset browser's natural pseudo-header sequence.</span>
+                  </div>
+                  <div class="cfg-col">
+                    <div class="cfg-col-header">
+                      <label class="cfg-label" style="margin:0;">Request Body Payload (POST / PUT / PATCH)</label>
+                      <div class="cfg-payload-actions">
+                        <button type="button" class="btn-mini-payload" id="btnPayloadJson">JSON</button>
+                        <button type="button" class="btn-mini-payload" id="btnPayloadForm">Form-URL</button>
+                        <button type="button" class="btn-mini-payload" id="btnPayloadClear">Clear</button>
+                      </div>
+                    </div>
+                    <textarea id="cfgBody" class="cfg-textarea" rows="5" placeholder='{"key": "value"}'></textarea>
+                    <span class="cfg-hint">Auto-sets matching <code>Content-Type</code> if not explicitly provided above.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 3: Browser Automation -->
+              <div class="config-pane" id="cfgTurnstile">
+                <div class="cfg-grid-2">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Wait For CSS Selector (<code>wait_for_selector</code>)</label>
+                    <input type="text" id="cfgWaitForSelector" class="cfg-input" placeholder="e.g. .download-btn, #results-table" />
+                    <span class="cfg-hint">DOM element that must appear before returning. Forces browser if fast-path lacks it.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Click CSS Selector (<code>click_selector</code>)</label>
+                    <input type="text" id="cfgClickSelector" class="cfg-input" placeholder="e.g. button#continue, .submit-btn" />
+                    <span class="cfg-hint">Waits for element to be enabled, clicks, and captures redirects/downloads.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-2" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Challenge Settlement Timeout (<code>cf_wait</code>)</label>
+                    <input type="number" id="cfgCfWait" class="cfg-input" value="25.0" step="0.5" min="5" max="60" />
+                    <span class="cfg-hint">Max seconds for Cloudflare Turnstile to solve before timeout.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Page Load Strategy</label>
+                    <select id="cfgPageLoadState" class="cfg-select">
+                      <option value="complete" selected>Complete (Full load + network settlement)</option>
+                      <option value="interactive">Interactive (DOMContentLoaded)</option>
+                    </select>
+                    <span class="cfg-hint">Controls browser navigation readiness trigger.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 4: DOM Extraction -->
+              <div class="config-pane" id="cfgExtract">
+                <div class="cfg-grid-3">
+                  <div class="cfg-field" style="grid-column:span 2;">
+                    <label class="cfg-label">Target CSS Selector (<code>selector</code>)</label>
+                    <input type="text" id="cfgSelector" class="cfg-input" placeholder="e.g. a.download-link, h1.title, .movie-item" />
+                    <span class="cfg-hint">Runs Selectolax C-parser engine directly over the resolved HTML.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Attribute to Extract (<code>selector_attr</code>)</label>
+                    <input type="text" id="cfgSelectorAttr" class="cfg-input" value="text" placeholder="text, html, href, src, data-id..." />
+                    <span class="cfg-hint">Use <code>text</code> for inner text, <code>html</code> for outer HTML, or any HTML attribute.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-2" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Result Matching Mode</label>
+                    <select id="cfgSelectorAll" class="cfg-select">
+                      <option value="false" selected>First Match Only (Single string item)</option>
+                      <option value="true">All Matching Elements (Array of strings)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 5: Session & Cookies -->
+              <div class="config-pane" id="cfgCookies">
+                <div class="cfg-grid-3">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Isolated Session ID (<code>session_id</code>)</label>
+                    <input type="text" id="cfgSessionId" class="cfg-input" placeholder="e.g. task-42, user-alice" />
+                    <span class="cfg-hint">Sandboxes cookies into an isolated ephemeral cache; prevents cross-talk.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Cookie Cache TTL (Seconds)</label>
+                    <input type="number" id="cfgCookieTtl" class="cfg-input" value="86400" min="60" max="604800" />
+                    <span class="cfg-hint">How long cookies remain cached for this root domain.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Cookie Header Limit</label>
+                    <input type="number" id="cfgCookieLimit" class="cfg-input" value="35" min="5" max="100" />
+                    <span class="cfg-hint">Caps outbound cookies to prevent HTTP 400 header overflow.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-1" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <div class="cfg-col-header">
+                      <label class="cfg-label" style="margin:0;">Custom Session Cookies Injection (<code>inject_cookies</code>)</label>
+                      <button type="button" class="btn-add-kv" id="btnAddCookieRow">+ Add Cookie</button>
+                    </div>
+                    <div id="cookiesKvContainer" class="kv-container">
+                      <!-- Dynamic Key-Value Rows -->
+                    </div>
+                    <span class="cfg-hint">Injected cookies bypass allowlist filters and take highest precedence.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        <!-- Response Panel -->
+        <div class="response-panel" id="responsePanel">
+          <div class="response-metrics">
+            <div class="metric-pill" id="statusPill">Status: Idle</div>
+            <div class="metric-pill" id="viaPill">Engine: --</div>
+            <div class="metric-pill" id="cachePill">Cache: --</div>
+            <div class="metric-pill" id="protocolPill">Proto: --</div>
+            <div class="metric-pill" id="cookiesUsedPill">Cookies: 0</div>
+            <div class="metric-pill" id="timePill">Latency: -- ms</div>
+            <div class="response-quick-actions">
+              <button type="button" class="btn-quick-action" id="btnCopyJson" title="Copy JSON Response">
+                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Copy JSON</span>
+              </button>
+            </div>
           </div>
 
-          <!-- Cookies View -->
-          <div class="tab-pane" id="browserStateTab">
-            <div id="browserStateList">No cookies harvested yet.</div>
+          <div class="tab-nav">
+            <button type="button" class="tab-btn active" data-tab="jsonTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              JSON Output
+            </button>
+            <button type="button" class="tab-btn" data-tab="htmlTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              HTML Preview
+            </button>
+            <button type="button" class="tab-btn" data-tab="extractedTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Extracted (<span id="extractedCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="browserStateTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+              Cookies (<span id="cookieCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="headersTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              Headers
+            </button>
+            <button type="button" class="tab-btn" data-tab="logsTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Pipeline Logs (<span id="logsCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="turnstileTab" id="tabBtnTurnstile" style="display:none;">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Turnstile Token
+            </button>
           </div>
 
-          <!-- Headers View -->
-          <div class="tab-pane" id="headersTab">
-            <div id="headersList">No headers available.</div>
+          <div class="tab-content">
+            <!-- JSON View -->
+            <div class="tab-pane active" id="jsonTab">
+              <pre><code id="jsonOutput">// Configure request parameters above and click "Send Request"...</code></pre>
+            </div>
+
+            <!-- HTML Preview (Code + Sandboxed Iframe) -->
+            <div class="tab-pane" id="htmlTab">
+              <div class="html-preview-controls">
+                <div class="preview-mode-switch">
+                  <button type="button" class="btn-preview-mode active" id="btnPreviewCode">Code Syntax</button>
+                  <button type="button" class="btn-preview-mode" id="btnPreviewFrame">Rendered View (Sandbox)</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:0.78rem;color:var(--text-muted);" id="htmlSizeNotice">0 bytes</span>
+                  <button type="button" class="btn-quick-action" id="btnCopyHtml" title="Copy HTML Preview">
+                    <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <span>Copy HTML</span>
+                  </button>
+                </div>
+              </div>
+              <div id="htmlCodeContainer">
+                <pre><code id="htmlOutput">&lt;!-- Response body preview renders here --&gt;</code></pre>
+              </div>
+              <div id="htmlFrameContainer" style="display:none;">
+                <iframe id="previewIframe" class="preview-iframe" sandbox="allow-same-origin allow-scripts" title="Preview Frame"></iframe>
+              </div>
+            </div>
+
+            <!-- Extracted View -->
+            <div class="tab-pane" id="extractedTab">
+              <div class="html-preview-controls">
+                <span style="font-size:0.78rem;color:var(--text-muted);">Extracted elements matched by CSS selector</span>
+                <button type="button" class="btn-quick-action" id="btnCopyExtracted" title="Copy Extracted Content">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <span>Copy Extracted</span>
+                </button>
+              </div>
+              <div id="extractedList" class="empty-tab-msg">No extraction selector specified in request.</div>
+            </div>
+
+            <!-- Cookies View -->
+            <div class="tab-pane" id="browserStateTab">
+              <div id="browserStateList">No cookies harvested yet.</div>
+            </div>
+
+            <!-- Headers View -->
+            <div class="tab-pane" id="headersTab">
+              <div id="headersList">No headers available.</div>
+            </div>
+
+            <!-- Execution Logs View -->
+            <div class="tab-pane" id="logsTab">
+              <div id="logsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Step-by-step pipeline execution logs stream here...</div>
+            </div>
+
+            <!-- Turnstile Token View -->
+            <div class="tab-pane" id="turnstileTab">
+              <div id="turnstileContent">No Turnstile token requested.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= MODE 2: DEDICATED TURNSTILE SOLVER STUDIO ================= -->
+      <div class="studio-mode-pane" id="paneModeTurnstile" style="display:none;">
+        <div class="solver-intro-banner">
+          <div class="solver-intro-icon">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="solver-intro-content">
+            <h3>Turnstile Token Studio</h3>
+          </div>
+          <div class="solver-presets">
+            <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Test Presets:</span>
+            <button type="button" class="btn-preset btn-preset-solver" data-sitekey="1x00000000000000000000AA" data-siteurl="https://example.com">Always Pass (Demo)</button>
+            <button type="button" class="btn-preset btn-preset-solver" data-sitekey="0x4AAAAAAADnPIDROrmt1Wwj" data-siteurl="https://2captcha.com/demo/cloudflare-turnstile">2Captcha Demo</button>
+          </div>
+        </div>
+
+        <form id="turnstileSolveForm" class="studio-form">
+          <div class="solver-form-card">
+            <div class="cfg-grid-2">
+              <div class="cfg-field">
+                <label class="cfg-label" for="tsSitekey">Turnstile Sitekey</label>
+                <div class="input-with-action">
+                  <input type="text" id="tsSitekey" class="cfg-input" placeholder="0x4AAAAAA..." pattern="[A-Za-z0-9_\-]{1,128}" required />
+                  <button type="button" class="btn-cfg-action btn-paste-action btn-icon-only" id="btnPasteSitekey" title="Paste from clipboard" aria-label="Paste sitekey">
+                    <svg class="svg-icon" viewBox="0 0 24 24">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="tsSiteurl">Target Site URL</label>
+                <input type="url" id="tsSiteurl" class="cfg-input" placeholder="https://example.com/protected-page" required />
+              </div>
+            </div>
+
+            <div class="cfg-grid-3" style="margin-top:16px;">
+              <div class="cfg-field" style="grid-column: span 2;">
+                <label class="cfg-label" for="tsProxy">Egress Proxy URL (Optional)</label>
+                <div class="input-with-action">
+                  <input type="text" id="tsProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for direct/WARP)" />
+                  <button type="button" class="btn-cfg-action btn-paste-action btn-icon-only" id="btnPasteSavedProxyTs" title="Insert Saved Proxy" aria-label="Paste saved proxy">
+                    <svg class="svg-icon" viewBox="0 0 24 24">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="tsTimeout">Solve Timeout (Seconds)</label>
+                <input type="number" id="tsTimeout" class="cfg-input" value="30" min="5" max="120" />
+              </div>
+            </div>
+
+            <div class="solver-submit-row">
+              <button type="submit" id="btnSubmitSolve" class="btn-send btn-solver-action">
+                <svg class="svg-icon btn-send-icon" id="solverBtnIcon" viewBox="0 0 24 24">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                <span id="solverBtnLabel">Turnstile Token</span>
+                <kbd class="kbd-shortcut">↵</kbd>
+              </button>
+              <button type="button" class="btn-reset-solver" id="btnResetSolver">Clear Form</button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Turnstile Response Panel (Matches Scraping Studio) -->
+        <div class="response-panel" id="turnstileResponsePanel">
+          <div class="response-metrics">
+            <div class="metric-pill" id="solverStatusPill">Status: Idle</div>
+            <div class="metric-pill info" id="solverEnginePill">Engine: BROWSER</div>
+            <div class="metric-pill" id="solverSitekeyPill">Sitekey: --</div>
+            <div class="metric-pill" id="solverProxyPill">Proxy: Direct</div>
+            <div class="metric-pill" id="solverTimePill">Latency: -- s</div>
+            <div class="response-quick-actions">
+              <button type="button" class="btn-quick-action" id="btnCopyTurnstileToken" title="Copy Solved Token">
+                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span id="btnCopyTokenText">Copy Token</span>
+              </button>
+              <button type="button" class="btn-quick-action" id="btnCopySolverJson" title="Copy Raw Response JSON">
+                <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                <span>Copy JSON</span>
+              </button>
+            </div>
           </div>
 
-          <!-- Execution Logs View -->
-          <div class="tab-pane" id="logsTab">
-            <div id="logsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Step-by-step pipeline execution logs stream here...</div>
+          <div class="tab-nav">
+            <button type="button" class="tab-btn active" data-tab="tsTokenTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Token Output (<span id="tokenLenBadge">0 chars</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsJsonTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              JSON Response
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsIntegrationTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Integration Code
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsSubmissionsTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+              Captured Submissions (<span id="tsSubmissionsCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsLogsTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>
+              Pipeline Logs
+            </button>
           </div>
 
-          <!-- Turnstile Token View -->
-          <div class="tab-pane" id="turnstileTab">
-            <div id="turnstileContent">No Turnstile token requested.</div>
+          <div class="tab-content">
+            <!-- Token View -->
+            <div class="tab-pane active" id="tsTokenTab">
+              <pre><code id="turnstileTokenOutput" style="color:#38bdf8;word-break:break-all;white-space:pre-wrap;">// Configure sitekey and target URL above and click "Turnstile Token"...</code></pre>
+            </div>
+
+            <!-- JSON Output View -->
+            <div class="tab-pane" id="tsJsonTab">
+              <pre><code id="solverRawJson" class="language-json">// Awaiting solver execution...</code></pre>
+            </div>
+
+            <!-- Integration Code View -->
+            <div class="tab-pane" id="tsIntegrationTab">
+              <div class="html-preview-controls">
+                <span style="font-size:0.78rem;color:var(--text-muted);">How to forward this token in your cURL or Python scraping script</span>
+                <button type="button" class="btn-quick-action" id="btnCopyIntegrationSnippet" title="Copy Integration Code">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <span>Copy Code</span>
+                </button>
+              </div>
+              <pre><code id="tokenCurlSnippet" class="language-bash"># cURL verification submission:
+curl -X POST "https://example.com/protected-page" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "cf-turnstile-response=&lt;TOKEN&gt;"</code></pre>
+            </div>
+
+            <!-- Captured Submissions View -->
+            <div class="tab-pane" id="tsSubmissionsTab">
+              <div id="tsSubmissionsList" style="font-family:var(--font-mono);font-size:0.84rem;color:#a1a1aa;line-height:1.7;">No postback form submissions captured yet.</div>
+            </div>
+
+            <!-- Execution Logs View -->
+            <div class="tab-pane" id="tsLogsTab">
+              <div id="tsLogsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Headless browser challenge solver logs stream here...</div>
+            </div>
           </div>
         </div>
       </div>
@@ -553,7 +765,6 @@
             </svg>
             Domain Cache Explorer
           </h2>
-          <p class="section-subtitle">Real-time inspection of in-memory Cloudflare clearance sessions, cookie jars, and browser pool tab allocation.</p>
         </div>
         <div class="cache-header-actions">
           <div class="cache-search-wrap">
@@ -578,37 +789,29 @@
         <div class="cache-stat-card">
           <div class="cache-stat-header">
             <span class="cache-stat-label">Cached Domains</span>
-            <span class="cache-stat-tag">LRU Store</span>
           </div>
           <div class="cache-stat-val" id="statCachedDomains">0</div>
-          <div class="cache-stat-desc">Active domain cookie jars held in memory</div>
         </div>
 
         <div class="cache-stat-card">
           <div class="cache-stat-header">
             <span class="cache-stat-label">Browser Pool Tabs</span>
-            <span class="cache-stat-tag">CloakBrowser</span>
           </div>
           <div class="cache-stat-val" id="statActiveTabs">0 / 0</div>
-          <div class="cache-stat-desc">Active solver tabs running concurrently</div>
         </div>
 
         <div class="cache-stat-card">
           <div class="cache-stat-header">
             <span class="cache-stat-label">Total In-Memory Cookies</span>
-            <span class="cache-stat-tag">Sessions</span>
           </div>
           <div class="cache-stat-val" id="statTotalCookies">0</div>
-          <div class="cache-stat-desc">Harvested clearance & session tokens</div>
         </div>
 
         <div class="cache-stat-card">
           <div class="cache-stat-header">
             <span class="cache-stat-label">Fast-Path Efficiency</span>
-            <span class="cache-stat-tag">Status</span>
           </div>
           <div class="cache-stat-val" style="color:var(--accent-green);" id="statFastPathStatus">Ready</div>
-          <div class="cache-stat-desc">Bypasses solver on repeat visits</div>
         </div>
       </div>
 
@@ -630,20 +833,25 @@
 
       <!-- POST /fetch -->
       <div class="endpoint-card">
-        <div class="endpoint-header">
+        <div class="endpoint-header" style="cursor: pointer;" onclick="toggleEndpointCard('bodyFetch', this)">
           <div class="endpoint-path">
             <span class="badge-method method-post">POST</span>
             <span>/fetch</span>
           </div>
-          <span style="font-size: 0.85rem; color: var(--text-muted);">Main stealth scraping pipeline</span>
+          <button type="button" class="btn-endpoint-toggle is-collapsed" aria-expanded="false" aria-label="Toggle details">
+            <span class="endpoint-toggle-label">Show</span>
+            <svg class="svg-icon endpoint-chevron" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
         </div>
-        <div class="endpoint-body">
+        <div class="endpoint-body is-collapsed" id="bodyFetch">
           <p class="endpoint-desc">
             Primary endpoint for fetching content. Automatically routes through the fast-path or executes Cloudflare
             bypass via the persistent browser pool.
           </p>
 
-          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Authentication & Request Headers</h4>
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Authentication &amp; Request Headers</h4>
           <div class="table-container" style="margin-bottom: 24px;">
             <table>
               <thead>
@@ -659,7 +867,7 @@
                   <td><span class="param-name">X-API-Key</span></td>
                   <td><span class="badge-req">Required</span></td>
                   <td><span class="param-type">string</span></td>
-                  <td>Secret API key configured in <code>.env</code> (e.g. <code>anti_secret_key_123</code>). 100% required for direct API endpoints (<code>/fetch</code>, <code>/cookies</code>). Missing or invalid keys return <code>401 Unauthorized</code>.</td>
+                  <td>Secret API key configured in <code>.env</code> (e.g. <code>anti_secret_key_123</code>). 100% required for direct API endpoints (<code>/fetch</code>, <code>/solve-turnstile</code>, <code>/cookies</code>). Missing or invalid keys return <code>401 Unauthorized</code>.</td>
                 </tr>
                 <tr>
                   <td><span class="param-name">Authorization</span></td>
@@ -741,7 +949,7 @@
                   <td><span class="param-default">null</span></td>
                   <td>Egress proxy: <code>http://</code>, <code>https://</code>, <code>socks5://</code> or
                     <code>socks5h://</code>, credentials allowed (<code>socks5://user:pass@host:port</code>). Omit to use
-                    the server's <code>DEFAULT_PROXY</code> rule, or send <code>"direct"</code> to bypass it. Invalid
+                    direct or server WARP egress, or send <code>"direct"</code> to bypass it. Invalid
                     values return <code>422</code>. See <a href="#guides" class="guide-link" data-open-guide="guideProxies">Proxy guide</a>.</td>
                 </tr>
                 <tr>
@@ -817,27 +1025,6 @@
                     buffer overflow.</td>
                 </tr>
                 <tr>
-                  <td><span class="param-name">capture_token</span></td>
-                  <td><span class="badge-opt">Optional</span></td>
-                  <td><span class="param-type">boolean</span></td>
-                  <td><span class="param-default">false</span></td>
-                  <td>Return the Turnstile response token issued to the browser tab (forces browser engine). Never cached: tokens are single-use.</td>
-                </tr>
-                <tr>
-                  <td><span class="param-name">auto_token</span></td>
-                  <td><span class="badge-opt">Optional</span></td>
-                  <td><span class="param-type">boolean</span></td>
-                  <td><span class="param-default">false</span></td>
-                  <td>Automatically escalate to the browser and capture token when the page embeds a Turnstile widget. Set <code>false</code> to keep fast HTTP path.</td>
-                </tr>
-                <tr>
-                  <td><span class="param-name">token_field_names</span></td>
-                  <td><span class="badge-opt">Optional</span></td>
-                  <td><span class="param-type">string[] | null</span></td>
-                  <td><span class="param-default">null</span></td>
-                  <td>Extra input/textarea names to read the token from (e.g. <code>["ts"]</code>). Implies <code>capture_token</code>.</td>
-                </tr>
-                <tr>
                   <td><span class="param-name">selector</span></td>
                   <td><span class="badge-opt">Optional</span></td>
                   <td><span class="param-type">string | null</span></td>
@@ -867,13 +1054,7 @@
           <div class="code-block-wrapper">
             <div class="code-block-header">
               <span>JSON Response</span>
-              <button class="btn-copy" onclick="copyCode(this)">
-                <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-                Copy
-              </button>
+              <button class="btn-copy" onclick="copyCode(this)">Copy</button>
             </div>
             <pre><code>{
   <span class="json-key">"status_code"</span>: <span class="json-number">200</span>,
@@ -898,39 +1079,93 @@
         </div>
       </div>
 
-      <!-- GET /cookies -->
+      <!-- POST /solve-turnstile -->
       <div class="endpoint-card">
-        <div class="endpoint-header">
+        <div class="endpoint-header" style="cursor: pointer;" onclick="toggleEndpointCard('bodySolveTurnstile', this)">
           <div class="endpoint-path">
-            <span class="badge-method method-get">GET</span>
-            <span>/cookies</span>
+            <span class="badge-method method-post">POST</span>
+            <span>/solve-turnstile</span>
           </div>
-          <span style="font-size: 0.85rem; color: var(--text-muted);">List cached cookie jars</span>
+          <button type="button" class="btn-endpoint-toggle is-collapsed" aria-expanded="false" aria-label="Toggle details">
+            <span class="endpoint-toggle-label">Show</span>
+            <svg class="svg-icon endpoint-chevron" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
         </div>
-        <div class="endpoint-body">
-          <p class="endpoint-desc">Returns all currently active domain cookie jars along with remaining TTLs.</p>
+        <div class="endpoint-body is-collapsed" id="bodySolveTurnstile">
+          <p class="endpoint-desc">
+            Directly solves a Cloudflare Turnstile challenge and obtains a single-use token from the target widget's <code>sitekey</code> and origin <code>siteurl</code>. Uses route interception to avoid downloading third-party page assets.
+          </p>
+
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">Request Parameters (JSON Body)</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Requirement</th>
+                  <th>Type</th>
+                  <th>Default</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="param-name">sitekey</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">—</span></td>
+                  <td>Turnstile widget sitekey (0x...). Strictly validated against <code>^[A-Za-z0-9_-]{1,128}$</code>.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">siteurl</span></td>
+                  <td><span class="badge-req">Required</span></td>
+                  <td><span class="param-type">string</span></td>
+                  <td><span class="param-default">—</span></td>
+                  <td>Full URL of the origin domain the sitekey is authorized for (e.g. <code>https://example.com/protected-form</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">timeout</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">integer</span></td>
+                  <td><span class="param-default">30</span></td>
+                  <td>Max seconds to wait for the browser worker to solve the widget (5 to 120s). Returns <code>504</code> on timeout.</td>
+                </tr>
+                <tr>
+                  <td><span class="param-name">proxy</span></td>
+                  <td><span class="badge-opt">Optional</span></td>
+                  <td><span class="param-type">string | null</span></td>
+                  <td><span class="param-default">null</span></td>
+                  <td>Egress proxy for the solve session. Omit for direct/WARP connection.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-bottom: 8px; font-size: 0.95rem;">Response Schema</h4>
+          <div class="code-block-wrapper">
+            <div class="code-block-header">
+              <span>JSON Response</span>
+              <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+            </div>
+            <pre><code>{
+  <span class="json-key">"solved"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"token"</span>: <span class="json-string">"0.m9V_sample_turnstile_response_token_..."</span>,
+  <span class="json-key">"elapsed"</span>: <span class="json-number">2.45</span>,
+  <span class="json-key">"siteurl"</span>: <span class="json-string">"https://example.com/protected-form"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-null">null</span>
+}</code></pre>
+          </div>
         </div>
       </div>
 
-      <!-- DELETE /cookies/{domain} -->
-      <div class="endpoint-card">
-        <div class="endpoint-header">
-          <div class="endpoint-path">
-            <span class="badge-method method-delete">DELETE</span>
-            <span>/cookies/{domain}</span>
-          </div>
-          <span style="font-size: 0.85rem; color: var(--text-muted);">Purge cached cookies</span>
-        </div>
-        <div class="endpoint-body">
-          <p class="endpoint-desc">Manually evicts stored cookies for a given root domain (e.g.
-            <code>example.com</code>).</p>
-        </div>
-      </div>
     </section>
+
 
     <!-- Dedicated Feature Guides -->
     <section class="docs-section" id="guides">
-      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">Feature Guides</h2>
+      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">Feature Guides &amp; Examples</h2>
 
       <div class="guide-box">
         <div class="guide-header">
@@ -939,10 +1174,8 @@
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             </svg>
-            Interactive Topic Documentation
+            Topic Guides
           </div>
-          <span style="font-size: 0.82rem; color: var(--text-muted);">Select a feature to explore full usage
-            patterns</span>
         </div>
 
         <div class="guide-tabs-nav">
@@ -951,35 +1184,42 @@
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            HTML Selectors & Extraction
+            Selectors
           </button>
           <button type="button" class="guide-tab-btn" data-guide="guideCookies">
             <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" />
               <path d="M8 12h8" />
             </svg>
-            Cookie Injection & Auto-Jar
+            Cookies
           </button>
           <button type="button" class="guide-tab-btn" data-guide="guideCloudflare">
             <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            Cloudflare & Browser Controls
+            Cloudflare
           </button>
           <button type="button" class="guide-tab-btn" data-guide="guideNetworking">
             <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
               <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
               <polyline points="18 8 22 12 18 16" />
             </svg>
-            Fingerprints & User-Agent
+            Fingerprints
           </button>
           <button type="button" class="guide-tab-btn" data-guide="guideProxies">
             <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
             </svg>
-            Proxies & Egress Identity
+            Proxies
+          </button>
+          <button type="button" class="guide-tab-btn guide-tab-btn-accent" data-guide="guideExamples">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <polyline points="16 18 22 12 16 6"/>
+              <polyline points="8 6 2 12 8 18"/>
+            </svg>
+            Examples
           </button>
         </div>
 
@@ -1018,12 +1258,12 @@
           <!-- Cookies Guide -->
           <div class="guide-pane" id="guideCookies">
             <p>
-              The service includes a built-in <strong>Subdomain-Aware LRU In-Memory Cookie Store with Session Isolation & Pattern Allowlist Filtering</strong>.
+              The service includes a built-in <strong>Subdomain-Aware LRU In-Memory Cookie Store with Session Isolation &amp; Pattern Allowlist Filtering</strong>.
               When a Cloudflare Turnstile challenge is solved, clearance tokens and sessions are stored automatically. Subsequent requests reuse these cookies to hit the fast-path (300ms) without opening a browser.
             </p>
             <ul>
               <li><strong>Dual-Store Architecture (Zero LRU Pollution)</strong>: Separates long-lived domain caches (64 slots, 24h TTL) from ephemeral scraping sessions (256 slots, 10m TTL). High-volume task session churn never evicts root domain clearances (such as <code>example.com</code>).</li>
-              <li><strong>Strict Session Isolation</strong>: When <code>session_id</code> is provided (e.g. <code>"task-dl-1"</code>), the request runs in an isolated sandbox. It never falls back to the root domain and never writes to root, preventing session cookie contamination (like <code>ci_session</code>) and bot-score cross-linking via <code>__cf_bm</code>.</li>
+              <li><strong>Strict Session Isolation</strong>: When <code>session_id</code> is provided (e.g. <code>"task-dl-1"</code>), the request runs in an isolated sandbox. It never falls back to the root domain and never writes to root, preventing session cookie contamination and bot-score cross-linking via <code>__cf_bm</code>.</li>
               <li><strong>Synchronized Root Clearance</strong>: Non-session domain clearances write strictly <code>cf_clearance</code> to the root domain, atomically synchronizing matching User-Agent and proxy identities. When a challenge wall is encountered, rejected clearance is immediately purged from both the local session and root storage.</li>
               <li><strong><code>cookie_allowlist</code></strong>: Array of allowed cookie names or glob/regex wildcard patterns (e.g. <code>["cf_*", "__cf*", "*session*", "PHPSESSID"]</code>). Non-essential tracking cookies and analytics are pruned automatically.</li>
               <li><strong><code>cookie_limit</code></strong>: Upper bound on the number of cookies sent in request headers (default <code>35</code>, 3.5 KB max) to prevent HTTP 400 header overflow.</li>
@@ -1033,7 +1273,7 @@
 
             <div class="code-block-wrapper">
               <div class="code-block-header">
-                <span>Example: Isolated Session & Cookie Allowlist</span>
+                <span>Example: Isolated Session &amp; Cookie Allowlist</span>
                 <button class="btn-copy" onclick="copyCode(this)">Copy</button>
               </div>
               <pre><code>{
@@ -1064,7 +1304,7 @@
                 rendering.</li>
               <li><strong><code>force_http</code></strong>: Set to <code>true</code> to stay on the HTTP engine only. The
                 browser is never started; a 403 or challenge page is returned as-is. Use this for POST/API calls where a
-                403 comes from the site itself (e.g. an invalid token), not from Cloudflare.</li>
+                403 comes from the site itself, not Cloudflare.</li>
               <li><strong><code>cf_wait</code></strong>: Maximum duration in seconds to wait for Cloudflare Turnstile to
                 solve and redirect (default <code>25.0</code>s). Early-exits immediately as soon as the challenge is solved.</li>
               <li><strong>Dynamic Redirect Cache</strong>: When an origin domain redirects to a separate domain
@@ -1101,8 +1341,7 @@
                 responses, and any body over <code>MAX_RESPONSE_MB</code> (16), are never read into memory. You still
                 get <code>status_code</code>, <code>headers</code> and <code>url</code> (the final address after
                 redirects, ideal for download-gateway links) with an empty <code>body</code>, plus
-                <code>meta.body_truncated: true</code> and a <code>meta.body_note</code> reason. Download the file from
-                that <code>url</code> yourself.
+                <code>meta.body_truncated: true</code> and a <code>meta.body_note</code> reason.
               </div>
             </div>
             <ul>
@@ -1110,11 +1349,10 @@
                 default. If omitted, the authentic preset User-Agent is sent.</li>
               <li><strong><code>preset</code></strong>: Select from bundled browser fingerprint profiles:
                 <code>"chrome-latest-windows"</code>, <code>"chrome-latest-linux"</code>,
-                <code>"chrome-latest-macos"</code>, <code>"firefox-latest"</code>, <code>"safari-latest"</code>.
+                <code>"firefox-latest"</code>.
               </li>
               <li><strong><code>proxy</code></strong>: Route the request through an HTTP, HTTPS or SOCKS5 proxy. Each proxy
-                gets its own browser process with a matching timezone, locale and WebRTC IP. See the
-                <a href="#guides" class="guide-link" data-open-guide="guideProxies">Proxies &amp; Egress Identity</a> tab.</li>
+                gets its own browser process with matching timezone, locale and WebRTC IP.</li>
               <li><strong><code>http_version</code></strong>: Force protocol version (<code>"h1"</code>,
                 <code>"h2"</code>, <code>"h3"</code>) or leave as <code>null</code> for auto-negotiation via ALPN.</li>
             </ul>
@@ -1145,7 +1383,7 @@
             <div class="proxy-flow">
               <div class="flow-step">
                 <h4>Resolve</h4>
-                <p>Request <code>proxy</code> &gt; <code>"direct"</code> opt-out &gt; server <code>DEFAULT_PROXY</code> rule.</p>
+                <p>Request <code>proxy</code> &gt; <code>"direct"</code> opt-out &gt; server WARP egress.</p>
               </div>
               <div class="flow-step">
                 <h4>Isolate</h4>
@@ -1168,11 +1406,11 @@
                   <tr><th>Format</th><th>Notes</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td><code>http://user:pass@host:port</code></td><td>Most residential providers. Works on the HTTP engine and the browser.</td></tr>
+                  <tr><td><code>http://user:pass@host:port</code></td><td>Most residential providers. Works on HTTP engine and browser.</td></tr>
                   <tr><td><code>https://host:port</code></td><td>TLS connection to the proxy itself.</td></tr>
-                  <tr><td><code>socks5://user:pass@host:port</code></td><td>Authenticated SOCKS5, including passwords with <code>@</code> or <code>=</code> (encoded for you).</td></tr>
-                  <tr><td><code>socks5h://host:port</code></td><td>DNS resolved by the proxy (the browser always does this for SOCKS5).</td></tr>
-                  <tr><td><code>"direct"</code></td><td>Skip <code>DEFAULT_PROXY</code> for this request.</td></tr>
+                  <tr><td><code>socks5://user:pass@host:port</code></td><td>Authenticated SOCKS5, including special password chars (auto-encoded).</td></tr>
+                  <tr><td><code>socks5h://host:port</code></td><td>DNS resolved by the proxy (browser default for SOCKS5).</td></tr>
+                  <tr><td><code>"direct"</code></td><td>Explicitly bypass server egress for this request.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1202,31 +1440,6 @@
   <span class="json-key">"force_browser"</span>: <span class="json-boolean">true</span>
 }</code></pre>
               </div>
-
-              <div class="code-block-wrapper">
-                <div class="code-block-header">
-                  <span>.env: server-side routing</span>
-                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre><code><span class="hl-comment"># Clients never see the credentials</span>
-DEFAULT_PROXY=<span class="hl-string">http://user:pass@res.example:8000</span>
-<span class="hl-comment"># Subdomains included; empty = every domain</span>
-DEFAULT_PROXY_DOMAINS=<span class="hl-string">example.com,example.org</span>
-<span class="hl-comment"># Browser processes alive at once (license seats)</span>
-MAX_BROWSERS=<span class="hl-number">1</span>
-BROWSER_GEOIP=<span class="hl-keyword">true</span></code></pre>
-              </div>
-
-              <div class="code-block-wrapper">
-                <div class="code-block-header">
-                  <span>Bypass DEFAULT_PROXY</span>
-                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre><code>{
-  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/status"</span>,
-  <span class="json-key">"proxy"</span>: <span class="json-string">"direct"</span>
-}</code></pre>
-              </div>
             </div>
 
             <h3 class="guide-subtitle">Failure handling</h3>
@@ -1236,60 +1449,35 @@ BROWSER_GEOIP=<span class="hl-keyword">true</span></code></pre>
                   <tr><th>Situation</th><th>Response</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td>Malformed proxy (no scheme, no port, unsupported scheme)</td><td><code>422</code>, rejected before any network call; never falls back to a direct connection.</td></tr>
+                  <tr><td>Malformed proxy (no scheme, no port, unsupported scheme)</td><td><code>422</code>, rejected before any network call; never falls back to direct connection.</td></tr>
                   <tr><td>Proxy refuses or drops the connection</td><td><code>status_code: 502</code> with a <code>[PROXY-FAIL]</code> log; no browser solve is wasted.</td></tr>
                   <tr><td>Any log, error or response body</td><td>Credentials are masked as <code>socks5://***@host:port</code>.</td></tr>
                 </tbody>
               </table>
             </div>
-
-            <div class="callout callout-warn">
-              <svg class="svg-icon" viewBox="0 0 24 24">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              <div>
-                <strong>Use residential or ISP proxies for Cloudflare sites.</strong> Datacenter and VPN ranges are
-                challenged on IP reputation alone, whatever the fingerprint. A site's own per-IP limits (for example
-                "too many downloads") also apply to the proxy IP.
-              </div>
-            </div>
-
-            <div class="callout callout-info">
-              <svg class="svg-icon" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-              <div>
-                <strong>License seats.</strong> Each egress identity is a separate CloakBrowser session. With
-                <code>MAX_BROWSERS=1</code>, requests for different proxies take turns: the idle process is closed and the
-                next identity's browser starts (a few seconds). Raise it only up to your plan's concurrent sessions.
-              </div>
-            </div>
           </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- Code Examples -->
-    <section class="docs-section" id="examples">
-      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">Usage Examples</h2>
+          <!-- Usage Examples Guide Tab (Integrated!) -->
+          <div class="guide-pane" id="guideExamples">
+            <p>
+              Copy-pasteable code examples across languages and runtimes for stealth scraping and standalone Turnstile solving.
+            </p>
 
-      <!-- Python Example -->
-      <div class="code-block-wrapper" style="margin-bottom: 24px;">
-        <div class="code-block-header">
-          <span>Python (httpx / requests)</span>
-          <button class="btn-copy" onclick="copyCode(this)">
-            <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            Copy
-          </button>
-        </div>
-        <pre><code><span class="hl-keyword">import</span> httpx
+            <div class="examples-subnav">
+              <button type="button" class="btn-sub-toggle active" data-lang="py">Python (httpx)</button>
+              <button type="button" class="btn-sub-toggle" data-lang="curl">cURL CLI</button>
+              <button type="button" class="btn-sub-toggle" data-lang="node">Node.js (Fetch/Axios)</button>
+              <button type="button" class="btn-sub-toggle" data-lang="solve">Turnstile Solver</button>
+            </div>
+
+            <!-- Python Subpane -->
+            <div class="example-lang-pane active" id="exPython">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Python (httpx) — Standard Stealth Fetch</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-keyword">import</span> httpx
 
 <span class="hl-comment"># Send stealth request with API key</span>
 response = httpx.<span class="hl-fn">post</span>(
@@ -1306,64 +1494,98 @@ response = httpx.<span class="hl-fn">post</span>(
 data = response.<span class="hl-fn">json</span>()
 <span class="hl-fn">print</span>(<span class="hl-string">"Status Code:"</span>, data[<span class="hl-string">"status_code"</span>])
 <span class="hl-fn">print</span>(<span class="hl-string">"Engine Used:"</span>, data[<span class="hl-string">"meta"</span>][<span class="hl-string">"via"</span>])
-<span class="hl-fn">print</span>(<span class="hl-string">"Cache Hit:  "</span>, data[<span class="hl-string">"meta"</span>][<span class="hl-string">"cache_hit"</span>])
-<span class="hl-fn">print</span>(<span class="hl-string">"Extracted:  "</span>, data[<span class="hl-string">"extracted"</span>])</code></pre>
-      </div>
+<span class="hl-fn">print</span>(<span class="hl-string">"Extracted:"</span>, data[<span class="hl-string">"extracted"</span>])</code></pre>
+              </div>
 
-      <!-- cURL Example -->
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>cURL CLI</span>
-          <button class="btn-copy" onclick="copyCode(this)">
-            <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            Copy
-          </button>
-        </div>
-        <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/fetch \
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Python (httpx) — Proxied Multi-Hop Task</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-keyword">import</span> os, httpx
+
+response = httpx.<span class="hl-fn">post</span>(
+    <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: os.environ.<span class="hl-fn">get</span>(<span class="hl-string">"ANTI_API_KEY"</span>, <span class="hl-string">"anti_secret_key_123"</span>)},
+    json={
+        <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/download-portal"</span>,
+        <span class="json-key">"proxy"</span>: <span class="hl-string">"http://user:pass@residential.proxy:8080"</span>,
+        <span class="json-key">"session_id"</span>: <span class="hl-string">"task-dl-42"</span>,
+        <span class="json-key">"click_selector"</span>: <span class="hl-string">"button#start-download"</span>
+    },
+    timeout=<span class="hl-number">60.0</span>
+)
+data = response.<span class="hl-fn">json</span>()
+<span class="hl-fn">print</span>(<span class="hl-string">"Redirect chain:"</span>, data[<span class="hl-string">"redirect_chain"</span>])</code></pre>
+              </div>
+            </div>
+
+            <!-- cURL Subpane -->
+            <div class="example-lang-pane" id="exCurl" style="display:none;">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>cURL — Fast-Path GET</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/fetch \
   -H <span class="hl-string">"X-API-Key: anti_secret_key_123"</span> \
   -H <span class="hl-string">"Content-Type: application/json"</span> \
   -d <span class="hl-string">'{
     "url": "https://example.com/protected-page",
     "preset": "chrome-latest-windows"
   }'</span></code></pre>
-      </div>
+              </div>
+            </div>
 
-      <!-- Proxy Example -->
-      <div class="code-block-wrapper" style="margin-top: 24px;">
-        <div class="code-block-header">
-          <span>Python: through a residential proxy</span>
-          <button class="btn-copy" onclick="copyCode(this)">
-            <svg class="svg-icon" style="width:13px;height:13px" viewBox="0 0 24 24">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            Copy
-          </button>
+            <!-- Node.js Subpane -->
+            <div class="example-lang-pane" id="exNode" style="display:none;">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Node.js (fetch)</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-keyword">const</span> res = <span class="hl-keyword">await</span> <span class="hl-fn">fetch</span>(<span class="hl-string">'http://127.0.0.1:8000/fetch'</span>, {
+  method: <span class="hl-string">'POST'</span>,
+  headers: {
+    <span class="hl-string">'Content-Type'</span>: <span class="hl-string">'application/json'</span>,
+    <span class="hl-string">'X-API-Key'</span>: <span class="hl-string">'anti_secret_key_123'</span>
+  },
+  body: JSON.<span class="hl-fn">stringify</span>({
+    url: <span class="hl-string">'https://example.com/login'</span>,
+    force_browser: <span class="hl-keyword">true</span>,
+    cf_wait: <span class="hl-number">20</span>
+  })
+});
+<span class="hl-keyword">const</span> data = <span class="hl-keyword">await</span> res.<span class="hl-fn">json</span>();
+console.<span class="hl-fn">log</span>(data.status_code, data.cookies);</code></pre>
+              </div>
+            </div>
+
+            <!-- Turnstile Solver Subpane -->
+            <div class="example-lang-pane" id="exSolve" style="display:none;">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Solve Token via Standalone Solver (/solve-turnstile)</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/solve-turnstile \
+  -H <span class="hl-string">"X-API-Key: anti_secret_key_123"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{
+    "sitekey": "0x4AAAAAAADn3gM1k2p1n_dummy",
+    "siteurl": "https://example.com/protected-form",
+    "timeout": 30
+  }'</span>
+
+<span class="hl-comment"># Response:</span>
+<span class="hl-comment"># {"solved": true, "token": "0.xxxx...", "elapsed": 3.42, "siteurl": "https://example.com/protected-form", "proxy": null}</span></code></pre>
+              </div>
+            </div>
+          </div>
         </div>
-        <pre><code><span class="hl-keyword">import</span> os, httpx
-
-response = httpx.<span class="hl-fn">post</span>(
-    <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
-    headers={<span class="hl-string">"X-API-Key"</span>: os.environ[<span class="hl-string">"ANTI_API_KEY"</span>]},
-    json={
-        <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/protected-page"</span>,
-        <span class="hl-comment"># Keep credentials out of source control</span>
-        <span class="json-key">"proxy"</span>: os.environ[<span class="hl-string">"RESIDENTIAL_PROXY"</span>],
-        <span class="json-key">"session_id"</span>: <span class="hl-string">"job-17"</span>,
-    },
-    timeout=<span class="hl-number">120.0</span>,
-)
-
-data = response.<span class="hl-fn">json</span>()
-<span class="hl-keyword">if</span> data[<span class="hl-string">"status_code"</span>] == <span class="hl-number">502</span>:
-    <span class="hl-fn">print</span>(<span class="hl-string">"Proxy down:"</span>, data[<span class="hl-string">"logs"</span>][-<span class="hl-number">1</span>])
-<span class="hl-keyword">else</span>:
-    <span class="hl-fn">print</span>(data[<span class="hl-string">"status_code"</span>], data[<span class="hl-string">"meta"</span>][<span class="hl-string">"via"</span>])</code></pre>
       </div>
     </section>
+
   </main>
 
   <footer>
@@ -1372,7 +1594,7 @@ data = response.<span class="hl-fn">json</span>()
     </div>
   </footer>
 
-  <script src="/static/index.js?v=3.4"></script>
+  <script src="/static/index.js?v=4.4"></script>
 </body>
 
 </html>

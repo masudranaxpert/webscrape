@@ -32,16 +32,13 @@ def _pool(**kw) -> BrowserPool:
     return BrowserPool(**opts)
 
 
-def test_license_policy_routes_seat_to_proxy_identity():
-    pool = _pool(licensed_identity="proxy")
-    assert pool._may_license(PROXY) and not pool._may_license(None)
-    pool = _pool(licensed_identity="direct")
-    assert pool._may_license(None) and not pool._may_license(PROXY)
-    pool = _pool(licensed_identity="bogus")
-    assert pool._may_license(None) and pool._may_license(PROXY)
+def test_license_seat_belongs_to_the_direct_browser():
+    pool = _pool()
+    assert pool._may_license(None)
+    assert not pool._may_license(PROXY)
 
 
-def test_direct_identity_launches_keyless_without_touching_the_seat():
+def test_direct_runs_licensed_and_proxied_runs_keyless():
     async def run():
         seen = []
 
@@ -52,11 +49,11 @@ def test_direct_identity_launches_keyless_without_touching_the_seat():
         orig = browser_mod.cb.launch_async
         browser_mod.cb.launch_async = fake_launch_async
         try:
-            pool = _pool(licensed_identity="proxy")
+            pool = _pool()
             direct = await pool._launch_worker(proxy_key(None), None)
             proxied = await pool._launch_worker(proxy_key(PROXY), PROXY)
-            assert (direct.licensed, proxied.licensed) == (False, True)
-            assert seen == [None, "licensed"], "direct must never attempt the licensed seat"
+            assert (direct.licensed, proxied.licensed) == (True, False)
+            assert len(seen) == 2 and seen[1] is None, "proxied browsers must never attempt the licensed seat"
         finally:
             browser_mod.cb.launch_async = orig
 
@@ -74,26 +71,42 @@ def test_licensed_worker_stays_warm_past_unlicensed_lifetime():
     assert pool._is_stale(warm), "licensed worker never recycled"
 
 
-def test_eviction_keeps_the_licensed_worker():
+def test_proxy_eviction_never_touches_the_direct_licensed_browser():
     async def run():
-        pool = _pool(max_browsers=2)
+        pool = _pool(max_browsers=1)
         launched = []
 
         async def fake_launch(key, proxy):
             launched.append(proxy)
             return _Worker(key=key, proxy=proxy, browser=_FakeBrowser(), created_at=time.monotonic(),
-                           last_used=0.0, licensed=proxy == PROXY)
+                           last_used=0.0, licensed=proxy is None)
 
         pool._launch_worker = fake_launch
         far = time.monotonic() + 5
-        w_proxy = await pool._acquire(PROXY, far)
-        await pool._release(w_proxy)
         w_direct = await pool._acquire(None, far)
         await pool._release(w_direct)
-        w_direct.last_used = time.monotonic()  # direct is the most recently used, still the one to go
+        w_proxy = await pool._acquire(PROXY, far)
+        await pool._release(w_proxy)
         w_other = await pool._acquire("http://b.example:2", far)
-        assert w_direct.browser.closed and not w_proxy.browser.closed, "evicted the licensed worker"
+        await asyncio.gather(*pool._closing)  # retired processes close in the background, off the pool lock
+        assert w_proxy.browser.closed, "idle proxied worker should be recycled for the new proxy"
+        assert not w_direct.browser.closed, "direct licensed browser must never be evicted"
+        assert launched == [None, PROXY, "http://b.example:2"]
         await pool._release(w_other)
+
+
+def test_max_browsers_zero_disables_proxy_solving():
+    async def run():
+        pool = _pool(max_browsers=0)
+        try:
+            await pool._acquire(PROXY, time.monotonic() + 5)
+            raise AssertionError("proxied acquire must fail fast when MAX_BROWSERS=0")
+        except browser_mod.ProxySolvingDisabled:
+            pass
+        # Direct traffic keeps working on the licensed browser
+        w = await pool._acquire(None, time.monotonic() + 5)
+        assert w.proxy is None
+        await pool._release(w)
 
     asyncio.run(run())
 
@@ -184,6 +197,7 @@ def test_exit_ip_change_drains_retires_and_drops_old_clearance():
 
             await pool._release(first)                         # tab A finishes -> process replaced
             second = await asyncio.wait_for(pending, 1)
+            await asyncio.gather(*pool._closing)
             assert first.browser.closed and second is not first and launched == [PROXY, PROXY]
             await pool._release(second)
         finally:
@@ -204,10 +218,11 @@ def test_direct_workers_never_probe_exit_ip():
 
 
 def run_all():
-    test_license_policy_routes_seat_to_proxy_identity()
-    test_direct_identity_launches_keyless_without_touching_the_seat()
+    test_license_seat_belongs_to_the_direct_browser()
+    test_direct_runs_licensed_and_proxied_runs_keyless()
     test_licensed_worker_stays_warm_past_unlicensed_lifetime()
-    test_eviction_keeps_the_licensed_worker()
+    test_proxy_eviction_never_touches_the_direct_licensed_browser()
+    test_max_browsers_zero_disables_proxy_solving()
     test_same_exit_ip_keeps_the_browser()
     test_probe_is_rate_limited_and_never_blocks_acquire()
     test_exit_ip_change_drains_retires_and_drops_old_clearance()

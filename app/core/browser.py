@@ -7,10 +7,9 @@ import contextlib
 import dataclasses
 import logging
 import os
-import re
 import time
+from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urljoin
 
 import cloakbrowser as cb
 from cloakbrowser.geoip import resolve_proxy_exit_ip
@@ -18,7 +17,6 @@ from cloakbrowser.geoip import resolve_proxy_exit_ip
 from app.core.config import (
     BROWSER_CALL_TIMEOUT_SEC,
     BROWSER_EXIT_IP_CHECK_SEC,
-    BROWSER_LICENSED_IDENTITY,
     BROWSER_LICENSED_LIFETIME_SEC,
     BROWSER_CLICK_TIMEOUT_SEC,
     BROWSER_GEOIP,
@@ -28,113 +26,17 @@ from app.core.config import (
     BROWSER_MAX_LIFETIME_SEC,
     MAX_BROWSERS,
     MAX_TABS,
+    PROXY_QUEUE_BYTE_LIMIT,
 )
 from app.core.cookie_store import store
-from app.core.fetcher import _skip_reason
+from app.core.utils.challenge import click_turnstile_once
+from app.core.utils.playwright import bounded as _bounded  # noqa: F401  (tests call browser_mod._bounded)
 from app.core.proxy import browser_proxy, is_proxy_error, mask_proxy, proxy_key, redact
 
 logger = logging.getLogger(__name__)
 
 # Native closed-shadow-root access via patched Chromium
 FAKE_SHADOW_ARG = "--enable-blink-features=FakeShadowRoot"
-
-# Recursive shadow DOM walker to locate Turnstile checkbox within challenge iframes
-_FIND_CHECKBOX_JS = """() => {
-    function find(root){
-        if(!root) return null;
-        const direct = root.querySelector && root.querySelector('input[type=checkbox]');
-        if(direct) return direct;
-        for(const el of (root.querySelectorAll ? root.querySelectorAll('*') : [])){
-            const sr = el.fakeShadowRoot || el.shadowRoot;
-            if(sr){ const r = find(sr); if(r) return r; }
-        }
-        return null;
-    }
-    const cb = find(document);
-    if(!cb) return {found:false};
-    const r = cb.getBoundingClientRect();
-    return {found:true, checked:cb.checked, x:r.x+r.width/2, y:r.y+r.height/2, w:r.width};
-}"""
-
-# Detects an embedded Turnstile widget (not a full-page interstitial) and whether it has issued a token
-_TURNSTILE_STATE_JS = """() => {
-    const widgets = document.querySelectorAll(
-        '.cf-turnstile, iframe[src*="challenges.cloudflare.com"][src*="turnstile"]'
-    );
-    const inputs = document.querySelectorAll(
-        'input[name*="turnstile-response"], textarea[name*="turnstile-response"]'
-    );
-    // Widgets rendered via turnstile.render() live in a shadow tree the selectors above cannot see, but they
-    // always leave their hidden response input behind in the light DOM
-    if(!widgets.length && !inputs.length) return {present:false, solved:false};
-    const solved = inputs.length > 0 && Array.from(inputs).every(i => i.value && i.value.length > 0);
-    return {present:true, solved:solved};
-}"""
-
-# Reads the Turnstile token: known response inputs, caller-supplied names/globs, then turnstile.getResponse()
-_TURNSTILE_TOKEN_JS = """(names) => {
-    const toRe = g => new RegExp('^' + g.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&').replace(/\\*/g, '.*') + '$', 'i');
-    const pats = (names || []).map(toRe);
-    let token = null;
-    const fields = document.querySelectorAll('input[name], textarea[name]');
-    for(const el of fields){
-        const n = el.name || '';
-        if(!el.value) continue;
-        if(/turnstile-response/i.test(n) || pats.some(p => p.test(n))){ token = el.value; break; }
-    }
-    if(!token && window.turnstile && typeof window.turnstile.getResponse === 'function'){
-        try { token = window.turnstile.getResponse() || null; } catch(e){}
-    }
-    const w = document.querySelector('.cf-turnstile[data-sitekey], [data-sitekey]');
-    let sitekey = w ? w.getAttribute('data-sitekey') : null;
-    if(!sitekey){
-        const f = document.querySelector('iframe[src*="challenges.cloudflare.com"]');
-        const m = f && f.src.match(/\\/(0x[0-9A-Za-z_-]+)/);
-        if(m) sitekey = m[1];
-    }
-    return {token, sitekey};
-}"""
-
-# Fast in-browser DOM probe to determine if Cloudflare challenge wall has cleared
-_IS_BYPASSED_JS = """() => {
-    try {
-        const title = (document.title || '').toLowerCase();
-        const challengeTitles = [
-            'just a moment',
-            'attention required',
-            'security check',
-            'checking your browser',
-            'verifying you are human'
-        ];
-        if (challengeTitles.some(t => title.includes(t))) return false;
-
-        // Interstitial challenge wall DOM containers
-        if (document.querySelector(
-            '#challenge-running, #challenge-form, form#challenge-form, #challenge-stage, #cf-wrapper, .cf-browser-verification, #trk_jschal_js'
-        )) return false;
-
-        // Challenge platform orchestrator globals
-        if (window._cf_chl_opt || window.__cf_chl_opt || window._cf_chl_ctx) return false;
-
-        // Challenge iframe inside challenge container
-        if (document.querySelector('#challenge-stage iframe, #challenge-form iframe, #cf-wrapper iframe')) return false;
-
-        // Explicit block / access denied messages in body text
-        const bodyText = (document.body ? (document.body.innerText || '') : '').toLowerCase();
-        if (
-            bodyText.includes('please complete the captcha') ||
-            bodyText.includes('you have been blocked') ||
-            bodyText.includes('sorry, you have been blocked') ||
-            bodyText.includes('error 1020') ||
-            bodyText.includes('access denied')
-        ) return false;
-
-        return true;
-    } catch (e) {
-        return false;
-    }
-}"""
-
 
 
 @dataclasses.dataclass
@@ -148,10 +50,6 @@ class BrowserResult:
     cf_bypass_attempted: bool = True
     user_agent: str | None = None
     notes: list[str] = dataclasses.field(default_factory=list)
-    turnstile_token: str | None = None
-    turnstile_sitekey: str | None = None
-    turnstile_solved_at: float | None = None
-    token_submissions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # Every main-frame navigation the browser made: {"url", "status", "location"} per hop (redirects included)
     redirect_chain: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # Set when the page turned into a file download: the file was not fetched, final_url is its address
@@ -183,35 +81,21 @@ class BrowserPoolBusy(RuntimeError):
     """No browser slot became free within the queue budget (HTTP 503)."""
 
 
+class ProxySolvingDisabled(RuntimeError):
+    """Proxied solving is turned off (MAX_BROWSERS=0): no proxy browser may open (HTTP 409)."""
+
+
 class BrowserJobTimeout(RuntimeError):
     """A browser job exceeded its hard deadline and was cancelled (HTTP 504)."""
 
 
 # Licensed-launch retries when the single seat is still held by a just-closed process
 _SEAT_RETRIES = 2
-# Origin statuses that mean "past Cloudflare, but the site itself refuses" (e.g. a per-IP rate limit answers 429):
-# waiting out cf_wait for a selector or token on such a page only wastes the budget
-_ORIGIN_REFUSAL_STATUSES = (429,)
 _SEAT_RETRY_DELAY_SEC = 2.5
-
-
-_MAX_CHAIN = 25
-# After a click: longest wait for the page's reaction, and how long navigation must stay quiet to count as finished
-_POST_CLICK_MAX_SEC = 15.0
-_POST_CLICK_SETTLE_SEC = 1.5
-
-
-async def _cancel_download(download: Any) -> None:
-    """Cancel a browser download so a multi-GB file never reaches the disk."""
-    try:
-        await download.cancel()
-    except Exception:
-        pass
-
-
-async def _bounded(awaitable: Any, timeout: float = BROWSER_CALL_TIMEOUT_SEC) -> Any:
-    """Await a Playwright call that has no native timeout (evaluate, content, cookies) with a hard ceiling."""
-    return await asyncio.wait_for(awaitable, timeout=timeout)
+# Ceiling for one worker launch (GeoIP lookups + seat retries + Chromium start)
+_LAUNCH_TIMEOUT_SEC = 90.0
+# After an "invalid or expired" license answer, retry the licensed build only this often
+_LICENSE_DENIED_RETRY_SEC = 3600.0
 
 
 class BrowserPool:
@@ -230,23 +114,31 @@ class BrowserPool:
         max_lifetime_sec: int = BROWSER_MAX_LIFETIME_SEC,
         max_browsers: int = MAX_BROWSERS,
         geoip: bool = BROWSER_GEOIP,
-        licensed_identity: str = BROWSER_LICENSED_IDENTITY,
         licensed_lifetime_sec: int = BROWSER_LICENSED_LIFETIME_SEC,
         exit_ip_check_sec: float = BROWSER_EXIT_IP_CHECK_SEC,
     ) -> None:
         self._max_tabs = max_tabs
         self._headless = headless
         self._max_lifetime_sec = max_lifetime_sec
+        # Bounds concurrent PROXIED browsers; the direct licensed PRO browser lives outside this budget.
         self._max_browsers = max_browsers
         self._geoip = geoip
-        self._licensed_identity = licensed_identity if licensed_identity in ("any", "proxy", "direct") else "any"
         self._licensed_lifetime_sec = licensed_lifetime_sec
         self._exit_ip_check_sec = exit_ip_check_sec
         self._cond: asyncio.Condition | None = None
         self._workers: dict[str, _Worker] = {}
         self._waiting: dict[str, int] = {}
         self._probes: dict[str, asyncio.Task] = {}
+        # Identities whose browser is being launched right now (key -> proxy), and retired processes still closing
+        self._launching: dict[str, str | None] = {}
+        self._closing: set[asyncio.Task] = set()
+        # Serializes only the Chromium start itself (it edits the process environment), never the pool
+        self._launch_lock = asyncio.Lock()
+        # Total request-body bytes of proxied requests currently queued for a proxy slot.
+        self._proxy_queue_bytes = 0
         self._default_browser_ua: str | None = None
+        # Set when the license server rejected the key outright: launch keyless until then
+        self._license_denied_until = 0.0
 
     async def start(self) -> None:
         """Pre-warm browser environment and initialize concurrency primitives."""
@@ -269,14 +161,12 @@ class BrowserPool:
             logger.info("Display detected (%s) - Running in HEADFUL mode", os.getenv("DISPLAY"))
 
         logger.info(
-            "BrowserPool initialized | max_concurrent=%d | max_browsers=%d | headless=%s | geoip=%s | max_lifetime=%ds"
-            " | licensed_identity=%s",
+            "BrowserPool initialized | max_concurrent=%d | max_proxied_browsers=%d | headless=%s | geoip=%s | max_lifetime=%ds",
             self._max_tabs,
             self._max_browsers,
             self._headless,
             self._geoip,
             self._max_lifetime_sec,
-            self._licensed_identity,
         )
 
     def stats(self) -> dict[str, int]:
@@ -284,6 +174,7 @@ class BrowserPool:
         return {
             "browsers": len(self._workers),
             "max_browsers": self._max_browsers,
+            "proxy_queue_bytes": self._proxy_queue_bytes,
             "active_tabs": sum(w.active for w in self._workers.values()),
             "max_tabs": self._max_tabs,
             "queued": sum(self._waiting.values()),
@@ -291,12 +182,19 @@ class BrowserPool:
         }
 
     def _may_license(self, proxy: str | None) -> bool:
-        """Whether this egress identity may take the license seat under BROWSER_LICENSED_IDENTITY."""
-        if self._licensed_identity == "proxy":
-            return proxy is not None
-        if self._licensed_identity == "direct":
-            return proxy is None
-        return True
+        """License seat: the direct browser, or the WARP default egress when WARP_PROXY is set.
+        Proxied browsers for any other proxy always run keyless."""
+        from app.core.config import WARP_PROXY
+
+        if proxy is None:
+            return True
+        if not WARP_PROXY:
+            return False
+        try:
+            from app.core.proxy import normalize_proxy
+            return normalize_proxy(proxy) == normalize_proxy(WARP_PROXY)
+        except Exception:
+            return proxy == WARP_PROXY
 
     def _launch_args(self) -> list[str]:
         args = [
@@ -317,31 +215,40 @@ class BrowserPool:
         return args
 
     async def _close_browser_safely(self, browser: Any) -> None:
-        """Safely close a browser instance and release process resources."""
-        if browser is not None:
-            with contextlib.suppress(Exception):
-                await browser.close()
+        """Close a browser; if it does not answer within 5s, kill its Playwright driver process. Chromium runs on a
+        debugging pipe owned by that driver and exits when the pipe closes, so a wedged process is never orphaned."""
+        if browser is None:
+            return
+        try:
+            await asyncio.wait_for(browser.close(), timeout=5.0)
+            return
+        except Exception as err:
+            logger.warning("Browser close did not finish (%s); killing its driver process", type(err).__name__)
+        with contextlib.suppress(Exception):
+            browser._impl_obj._connection._transport._proc.kill()
 
     async def _launch_keyless(self, launch_kwargs: dict[str, Any]) -> Any:
-        """Launch the keyless build (v146): needs no license seat. Launches are serialized under the pool lock, so
-        hiding the key from the environment for the duration of this call cannot race another launch."""
+        """Launch the keyless build (v146): needs no license seat. The key is hidden from the environment for the
+        duration of the call, under the launch lock so a concurrent licensed launch never sees it missing."""
         fallback_kwargs = dict(launch_kwargs)
         fallback_kwargs["license_key"] = None
-        saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
-        try:
-            return await cb.launch_async(**fallback_kwargs)
-        finally:
-            if saved_key:
-                os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
+        async with self._launch_lock:
+            saved_key = os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
+            try:
+                return await cb.launch_async(**fallback_kwargs)
+            finally:
+                if saved_key:
+                    os.environ["CLOAKBROWSER_LICENSE_KEY"] = saved_key
 
     async def _launch_browser(self, launch_kwargs: dict[str, Any], use_license: bool = True) -> tuple[Any, bool]:
         """Launch CloakBrowser; on a license/seat error fall back to the unauthenticated engine. Returns (browser, licensed)."""
-        if not use_license:
+        if not use_license or time.monotonic() < self._license_denied_until:
             return await self._launch_keyless(launch_kwargs), False
         last_err: Exception | None = None
         for attempt in range(_SEAT_RETRIES + 1):
             try:
-                return await cb.launch_async(**launch_kwargs), True
+                async with self._launch_lock:
+                    return await cb.launch_async(**launch_kwargs), True
             except Exception as err:
                 last_err = err
                 # Swapping egress identities closes one process and launches the next immediately; the license
@@ -355,6 +262,10 @@ class BrowserPool:
         err_msg = str(last_err).lower()
         if "license" in err_msg or "session limit" in err_msg or "exit code 76" in err_msg or "exitcode=76" in err_msg:
             logger.warning("CloakBrowser license failure (%s); falling back to unauthenticated engine", redact(str(last_err)))
+            if "invalid or expired" in err_msg:
+                # A dead key stays dead: stop re-validating it on every launch and recycling the keyless fallback
+                # after a minute to retry the seat (that churn costs a cold Cloudflare clearance each time)
+                self._license_denied_until = time.monotonic() + _LICENSE_DENIED_RETRY_SEC
             return await self._launch_keyless(launch_kwargs), False
         raise last_err
 
@@ -380,7 +291,9 @@ class BrowserPool:
                     launch_kwargs["args"].append(f"--fingerprint-webrtc-ip={exit_ip}")
                 logger.info("GeoIP for %s: tz=%s locale=%s", mask_proxy(proxy), timezone, locale)
             except Exception as err:
-                if proxy and is_proxy_error(str(err)):
+                if proxy and (is_proxy_error(str(err)) or "timed out" in str(err).lower()):
+                    # The GeoIP lookup goes through the proxy: a timeout means the proxy is dead, and a second
+                    # 20s exit-IP lookup below would only hold the pool lock longer
                     raise RuntimeError(f"Proxy {mask_proxy(proxy)} unreachable: {redact(str(err))}") from err
                 logger.warning("GeoIP resolution failed for %s (%s); launching with default timezone/locale", mask_proxy(proxy), redact(str(err)))
                 launch_kwargs["args"].append("--lang=en-US,en")
@@ -395,7 +308,7 @@ class BrowserPool:
         browser, licensed = await self._launch_browser(launch_kwargs, use_license=use_license)
         now = time.monotonic()
         created_at = now
-        if use_license and not licensed:
+        if use_license and not licensed and now >= self._license_denied_until:
             # A busy seat is usually a previous container still shutting down: retry the licensed build once this
             # fallback process has been idle for a minute instead of running unlicensed for a full lifetime
             created_at = now - max(0, self._max_lifetime_sec - 60)
@@ -461,14 +374,19 @@ class BrowserPool:
             worker.poisoned = True
             self._cond.notify_all()
 
-    async def _acquire(self, proxy: str | None, deadline: float) -> _Worker:
-        """Reserve a tab on the browser for this egress identity, launching or evicting processes as needed.
+    async def _acquire(self, proxy: str | None, deadline: float, payload_bytes: int = 0) -> _Worker:
+        """Reserve a tab for this egress identity, launching or evicting processes as needed.
 
-        Every wait is bounded by `deadline` (monotonic): a busy or wedged pool fails fast with BrowserPoolBusy instead
-        of parking requests forever.
+        Waits are bounded by `deadline`; MAX_BROWSERS bounds proxied browsers only; proxied waiters charge
+        `payload_bytes` against PROXY_QUEUE_BYTE_LIMIT so a request flood cannot buffer unbounded memory.
         """
         if self._cond is None:
             self._cond = asyncio.Condition()
+        if proxy is not None and self._max_browsers == 0:
+            raise ProxySolvingDisabled(
+                "Proxy solving is disabled on this server (MAX_BROWSERS=0): no proxy browser may be opened. "
+                "Send the request without a proxy field, or with proxy='direct'."
+            )
         key = proxy_key(proxy)
         async with self._cond:
             while True:
@@ -479,48 +397,63 @@ class BrowserPool:
                         mask_proxy(proxy), time.monotonic() - worker.created_at, worker.poisoned,
                     )
                     del self._workers[key]
-                    await self._close_browser_safely(worker.browser)
+                    self._close_in_background(worker.browser)
                     worker = None
 
                 if worker is not None:
                     self._schedule_exit_ip_probe(worker)
 
-                full = len(self._workers) >= self._max_browsers
-                tabs_free = sum(w.active for w in self._workers.values()) < self._max_tabs
+                proxied_workers = [w for w in self._workers.values() if w.proxy is not None]
+                # A launch in flight holds its process slot and one tab, so nothing over-commits while it runs
+                proxied_count = len(proxied_workers) + sum(1 for p in self._launching.values() if p is not None)
+                # Only proxied traffic is bounded by MAX_BROWSERS; the direct licensed browser always fits.
+                full = proxy is not None and proxied_count >= self._max_browsers
+                tabs_used = sum(w.active for w in self._workers.values()) + len(self._launching)
+                tabs_free = tabs_used < self._max_tabs
+                launching = key in self._launching
                 if worker is not None:
                     # Drain instead of joining while another identity waits for a slot, so it cannot starve;
                     # a poisoned process takes no new tabs
                     if tabs_free and not worker.poisoned and not (full and self._others_waiting(key)):
                         worker.active += 1
                         return worker
+                elif launching:
+                    pass  # another request is starting this identity's browser: wait for it below
                 elif not full:
                     if tabs_free:
-                        worker = await self._launch_worker(key, proxy)
-                        self._workers[key] = worker
-                        worker.active += 1
-                        return worker
+                        self._launching[key] = proxy
+                        break  # launch outside the lock (below)
                 else:
-                    idle = [w for w in self._workers.values() if w.active == 0]
+                    idle = [w for w in proxied_workers if w.active == 0]
                     if idle:
-                        # Keep the licensed (warm, seat-holding) process: evict keyless ones first, then LRU
-                        victim = min(idle, key=lambda w: (w.licensed, w.last_used))
-                        logger.info("Browser slots full: closing idle worker for %s to serve %s", mask_proxy(victim.proxy), mask_proxy(proxy))
+                        # Evict the least recently used idle proxied browser to make room for the new identity;
+                        # the direct licensed browser is never a victim.
+                        victim = min(idle, key=lambda w: w.last_used)
+                        logger.info("Proxy browser slots full: closing idle worker for %s to serve %s", mask_proxy(victim.proxy), mask_proxy(proxy))
                         del self._workers[victim.key]
-                        await self._close_browser_safely(victim.browser)
+                        self._close_in_background(victim.browser)
                         continue
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise BrowserPoolBusy(
                         f"No browser slot for {mask_proxy(proxy)} within the queue budget "
-                        f"({sum(w.active for w in self._workers.values())}/{self._max_tabs} tabs, "
-                        f"{len(self._workers)}/{self._max_browsers} browsers busy)"
+                        f"({tabs_used}/{self._max_tabs} tabs, "
+                        f"{proxied_count}/{self._max_browsers} proxy browsers busy)"
                     )
 
                 # Every process is busy (or draining for another identity): wait for a tab to finish
                 waiting = worker is None
+                charged = waiting and proxy is not None and payload_bytes > 0
+                if charged and self._proxy_queue_bytes + payload_bytes > PROXY_QUEUE_BYTE_LIMIT:
+                    raise BrowserPoolBusy(
+                        f"Proxy queue full: waiting requests already hold {self._proxy_queue_bytes}/"
+                        f"{PROXY_QUEUE_BYTE_LIMIT} bytes of request bodies; retry shortly"
+                    )
                 if waiting:
                     self._waiting[key] = self._waiting.get(key, 0) + 1
+                    if charged:
+                        self._proxy_queue_bytes += payload_bytes
                 try:
                     await asyncio.wait_for(self._cond.wait(), timeout=remaining)
                 except asyncio.TimeoutError:
@@ -530,6 +463,37 @@ class BrowserPool:
                         self._waiting[key] -= 1
                         if not self._waiting[key]:
                             del self._waiting[key]
+                        if charged:
+                            self._proxy_queue_bytes -= payload_bytes
+
+        # The launch (GeoIP lookups through the proxy, seat retries, Chromium start) runs WITHOUT the pool lock: a
+        # slow or dead proxy must not freeze tabs on other identities, nor the releases that free them
+        worker = None
+        try:
+            worker = await asyncio.wait_for(self._launch_worker(key, proxy), timeout=_LAUNCH_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"Browser launch for {mask_proxy(proxy)} did not finish within {_LAUNCH_TIMEOUT_SEC:.0f}s"
+            ) from None
+        finally:
+            async with self._cond:
+                self._launching.pop(key, None)
+                if worker is not None:
+                    if self._workers.get(key) is None:
+                        self._workers[key] = worker
+                        worker.active += 1
+                    else:  # cannot happen while the reservation holds, but never leak a process
+                        self._close_in_background(worker.browser)
+                        worker = self._workers[key]
+                        worker.active += 1
+                self._cond.notify_all()
+        return worker
+
+    def _close_in_background(self, browser: Any) -> None:
+        """Close a retired process without holding the pool lock (a wedged close takes up to 5s + kill)."""
+        task = asyncio.create_task(self._close_browser_safely(browser))
+        self._closing.add(task)
+        task.add_done_callback(self._closing.discard)
 
     def _others_waiting(self, key: str) -> bool:
         return any(k != key and k not in self._workers for k in self._waiting)
@@ -542,6 +506,26 @@ class BrowserPool:
             worker.last_used = time.monotonic()
             self._cond.notify_all()
 
+    @asynccontextmanager
+    async def slot(self, proxy: str | None, deadline: float, payload_bytes: int = 0):
+        """Reserve one worker tab for the duration of the block (used by the turnstile solver)."""
+        worker = await self._acquire(proxy, deadline, payload_bytes=payload_bytes)
+        try:
+            yield worker
+        finally:
+            await self._release(worker)
+
+    async def _run_context(self, worker, url, cf_wait, proxy, page_load_state, cookies,
+                           wait_for_selector=None, click_selector=None, method="GET",
+                           headers=None, body=None) -> BrowserResult:
+        """Fetch pipeline delegate; tests monkeypatch this to stub out the tab work."""
+        from app.core.fetch_flow import run_fetch_flow
+
+        return await run_fetch_flow(
+            self, worker, url, cf_wait, proxy, page_load_state, cookies,
+            wait_for_selector, click_selector, method, headers, body,
+        )
+
     async def stop(self) -> None:
         """Clean up all browser processes."""
         if self._cond is None:
@@ -549,10 +533,12 @@ class BrowserPool:
         for task in list(self._probes.values()):
             task.cancel()
         async with self._cond:
-            for worker in list(self._workers.values()):
-                await self._close_browser_safely(worker.browser)
+            workers = list(self._workers.values())
             self._workers.clear()
             self._cond.notify_all()
+        await asyncio.gather(
+            *(self._close_browser_safely(w.browser) for w in workers), *self._closing, return_exceptions=True
+        )
         logger.info("BrowserPool stopped")
 
     async def solve_and_fetch(
@@ -563,22 +549,24 @@ class BrowserPool:
         page_load_state: str = "complete",
         cookies: dict[str, str] | None = None,
         wait_for_selector: str | None = None,
-        capture_token: bool = False,
-        token_field_names: list[str] | None = None,
         click_selector: str | None = None,
         method: str = "GET",
         headers: dict[str, str] | None = None,
         body: str | None = None,
+        payload_bytes: int = 0,
     ) -> BrowserResult:
         """Acquire a slot, navigate to target, solve challenge if present, and harvest tokens.
 
         The whole job (queue wait included) is capped at cf_wait + BROWSER_JOB_OVERHEAD_SEC, so a hung Playwright call
-        can never hold a tab, and with MAX_BROWSERS=1 the whole pool, indefinitely.
+        can never hold a tab, and with MAX_BROWSERS=1 the whole pool, indefinitely. `payload_bytes` is the request
+        body size proxied requests charge against the 16MB proxy-queue cap while they wait for a slot.
         """
         budget = cf_wait + BROWSER_JOB_OVERHEAD_SEC
         started = time.monotonic()
         deadline = started + budget
-        worker = await self._acquire(proxy, min(deadline, started + BROWSER_QUEUE_TIMEOUT_SEC))
+        worker = await self._acquire(
+            proxy, min(deadline, started + BROWSER_QUEUE_TIMEOUT_SEC), payload_bytes=payload_bytes
+        )
         try:
             return await asyncio.wait_for(
                 self._run_context(
@@ -589,8 +577,6 @@ class BrowserPool:
                     page_load_state,
                     cookies,
                     wait_for_selector,
-                    capture_token,
-                    token_field_names,
                     click_selector,
                     method,
                     headers,
@@ -613,41 +599,6 @@ class BrowserPool:
         finally:
             await self._release(worker)
 
-    async def _is_bypassed(self, page: Any) -> bool:
-        """Check if challenge wall has cleared via fast in-browser DOM probe."""
-        try:
-            return bool(await _bounded(page.evaluate(_IS_BYPASSED_JS)))
-        except Exception:
-            return False
-
-    async def _turnstile_pending(self, page: Any) -> bool:
-        """True when an embedded Turnstile widget exists on the page and has not yet issued a token."""
-        try:
-            state = await _bounded(page.evaluate(_TURNSTILE_STATE_JS))
-            return bool(state and state.get("present") and not state.get("solved"))
-        except Exception:
-            return False
-
-    async def _has_selector(self, page: Any, selector: str) -> bool:
-        """True when the CSS selector currently matches an element in the live DOM."""
-        try:
-            if await _bounded(page.query_selector(selector)) is not None:
-                return True
-            if selector.startswith("."):
-                cls_name = selector[1:]
-                return await _bounded(page.query_selector(f"[class*='{cls_name}']")) is not None
-            return False
-        except Exception:
-            return False
-
-    async def _is_ready(self, page: Any, selector: str | None) -> bool:
-        """Wall cleared, no pending embedded Turnstile, and (if requested) target selector rendered."""
-        if not await self._is_bypassed(page):
-            return False
-        if await self._turnstile_pending(page):
-            return False
-        return selector is None or await self._has_selector(page, selector)
-
     async def _click_turnstile_checkbox(self, page: Any) -> bool:
         """Click the Turnstile checkbox, bounded: humanized mouse moves on a wedged frame must not stall the solve loop."""
         started = time.monotonic()
@@ -662,586 +613,7 @@ class BrowserPool:
                 logger.info("Turnstile click attempt took %.1fs (host under load?)", took)
 
     async def _click_turnstile_once(self, page: Any) -> bool:
-        """Find Turnstile checkbox inside shadow DOM or frame and click it via native events."""
-        cf_frames = [f for f in page.frames if "challenges.cloudflare" in (f.url or "")]
-        for frame in cf_frames:
-            # 1. Direct frame element selectors (CTP / Turnstile labels)
-            for sel in ('[role="checkbox"]', '.ctp-checkbox-label', 'input[type="checkbox"]', '#challenge-stage div', '.cb-i'):
-                with contextlib.suppress(Exception):
-                    el = frame.locator(sel).first
-                    if await el.is_visible(timeout=300):
-                        await el.click(timeout=1000, force=True)
-                        logger.info("Turnstile frame clicked selector: '%s'", sel)
-                        await asyncio.sleep(0.5)
-                        return True
-
-            # 2. Recursive shadow DOM evaluation (exact center coordinate)
-            try:
-                info = await _bounded(frame.evaluate(_FIND_CHECKBOX_JS))
-                if info and info.get("found") and info.get("w", 0) > 0 and not info.get("checked"):
-                    frame_el = await _bounded(frame.frame_element())
-                    box = await _bounded(frame_el.bounding_box())
-                    if box:
-                        click_x = box["x"] + info["x"]
-                        click_y = box["y"] + info["y"]
-                        logger.info("Turnstile checkbox located via shadow DOM: clicking at (%.1f, %.1f)", click_x, click_y)
-                        await page.mouse.move(click_x, click_y)
-                        await asyncio.sleep(0.1)
-                        await page.mouse.click(click_x, click_y)
-                        await asyncio.sleep(0.5)
-                        return True
-            except Exception as e:
-                logger.debug("Turnstile frame evaluate exception: %s", e)
-
-            # 3. Heuristic coordinate click via bounding box fallback
-            try:
-                frame_el = await _bounded(frame.frame_element())
-                box = await _bounded(frame_el.bounding_box())
-                if box and box["width"] >= 20:
-                    click_x = box["x"] + min(28, box["width"] * 0.15)
-                    click_y = box["y"] + box["height"] / 2
-                    logger.info("Turnstile checkbox located via bounding box: clicking at (%.1f, %.1f)", click_x, click_y)
-                    await page.mouse.move(click_x, click_y)
-                    await asyncio.sleep(0.1)
-                    await page.mouse.click(click_x, click_y)
-                    await asyncio.sleep(0.5)
-                    return True
-            except Exception as e:
-                logger.debug("Turnstile frame bounding box exception: %s", e)
-
-        # 4. Keyboard Tab+Space fallback
-        with contextlib.suppress(Exception):
-            await page.keyboard.press("Tab")
-            await asyncio.sleep(0.1)
-            await page.keyboard.press("Space")
-            logger.debug("Turnstile keyboard Tab+Space attempted")
-
-        return False
-
-    async def _await_click_outcome(self, page: Any, chain: list, downloads: list) -> str:
-        """After a click, wait for what the page does next: a download, one or more navigations, or nothing.
-
-        Generic for any site: ends once a download starts, or once navigation has been quiet for a moment after the
-        URL changed (so multi-hop redirects finish), or after a bounded wait if the click triggered nothing.
-        """
-        start_url = page.url
-        seen = len(chain)
-        last_change: float | None = None
-        deadline = time.monotonic() + _POST_CLICK_MAX_SEC
-        while time.monotonic() < deadline:
-            await asyncio.sleep(0.4)
-            if downloads:
-                return "file download started"
-            now = time.monotonic()
-            if len(chain) != seen:
-                seen, last_change = len(chain), now
-            elif last_change is None and page.url != start_url:
-                last_change = now
-            if last_change is not None and now - last_change >= _POST_CLICK_SETTLE_SEC:
-                return f"navigated to {page.url}"
-        return "no navigation within the wait window"
-
-    async def _run_context(
-        self,
-        worker: _Worker,
-        url: str,
-        cf_wait: float,
-        proxy: str | None,
-        page_load_state: str,
-        cookies: dict[str, str] | None,
-        wait_for_selector: str | None = None,
-        capture_token: bool = False,
-        token_field_names: list[str] | None = None,
-        click_selector: str | None = None,
-        method: str = "GET",
-        headers: dict[str, str] | None = None,
-        body: str | None = None,
-    ) -> BrowserResult:
-        t0 = time.monotonic()
-        # Map API load-state names onto Playwright wait_until values
-        load_state = {"complete": "load", "interactive": "domcontentloaded"}.get(
-            (page_load_state or "").lower(), "domcontentloaded"
-        )
-
-        context = None
-        selector = (wait_for_selector or "").strip() or None
-        notes: list[str] = []
-        harvested: dict[str, str] = {}
-        final_url: str = url
-        status_code = 200
-        status: int = 200
-        resp_headers: dict[str, str] = {}
-        user_agent: str | None = self._default_browser_ua
-        ts_token: str | None = None
-        ts_sitekey: str | None = None
-        ts_solved_at: float | None = None
-        initial_clearance: str | None = None
-        attempted_clearance_reload: bool = False
-        origin_refused = False
-
-        try:
-            context_kwargs: dict[str, Any] = {"viewport": {"width": 1280, "height": 720}}
-            if not self._geoip:
-                context_kwargs["locale"] = "en-US"
-
-            context = await worker.browser.new_context(**context_kwargs)
-
-            page = context.pages[0] if context.pages else await context.new_page()
-            timeout_ms = max(int(cf_wait * 1000), 30000)
-            page.set_default_timeout(timeout_ms)
-            page.set_default_navigation_timeout(timeout_ms)
-
-            # Track the last real top-level document response: the wall often clears via in-page navigation, so the
-            # first goto() response (403 + cf-mitigated) would otherwise be reported for the final page
-            last_doc: dict[str, Any] = {}
-
-            def _on_response(r: Any) -> None:
-                try:
-                    if r.request.resource_type == "document" and r.frame == page.main_frame and r.status != 403:
-                        last_doc["status"] = r.status
-                        last_doc["headers"] = dict(r.headers or {})
-                except Exception:
-                    pass
-
-            page.on("response", _on_response)
-
-            # Every main-frame navigation (redirect hops included) and any file download the page starts. A download is
-            # cancelled right away: Anti reports where the file lives (its URL), it never fetches it
-            chain: list[dict[str, Any]] = []
-            downloads: list[dict[str, str]] = []
-
-            def _on_nav_response(r: Any) -> None:
-                try:
-                    if r.request.resource_type == "document" and r.frame == page.main_frame and len(chain) < _MAX_CHAIN:
-                        location = (r.headers or {}).get("location")
-                        chain.append({
-                            "url": r.url,
-                            "status": r.status,
-                            "location": urljoin(r.url, location) if location else None,
-                        })
-                except Exception:
-                    pass
-
-            def _on_download(download: Any) -> None:
-                downloads.append({"url": download.url, "filename": download.suggested_filename})
-                asyncio.ensure_future(_cancel_download(download))
-
-            page.on("response", _on_nav_response)
-            page.on("download", _on_download)
-
-            # Sites often POST the token themselves the instant it is issued, then wipe the widget: record those
-            # submissions (token + what the server answered) since the DOM no longer has them
-            submissions: list[dict[str, Any]] = []
-            token_re = re.compile(
-                r"(?:turnstile-response|cf_turnstile|"
-                + "|".join(re.escape(n) for n in (token_field_names or []))
-                + r")[\"']?\s*[=:]\s*[\"']?([A-Za-z0-9._\-]{40,})"
-                if token_field_names else
-                r"(?:turnstile-response|cf_turnstile)[\"']?\s*[=:]\s*[\"']?([A-Za-z0-9._\-]{40,})",
-                re.I,
-            )
-
-            async def _on_submit_response(r: Any) -> None:
-                try:
-                    req = r.request
-                    m = token_re.search(req.post_data or "")
-                    if not m or len(submissions) >= 5:
-                        return
-                    try:
-                        text = (await r.text())[:4000]
-                    except Exception:
-                        text = ""
-                    submissions.append({
-                        "url": req.url,
-                        "method": req.method,
-                        "token": m.group(1),
-                        "response_status": r.status,
-                        "response_content_type": r.headers.get("content-type"),
-                        "response_body": text,
-                    })
-                except Exception:
-                    pass
-
-            page.on("response", lambda r: asyncio.ensure_future(_on_submit_response(r)))
-
-            # Pre-inject cached cookies into context
-            if cookies:
-                cookie_list = [
-                    {"name": k, "value": v, "url": url}
-                    for k, v in cookies.items()
-                ]
-                with contextlib.suppress(Exception):
-                    await context.add_cookies(cookie_list)
-
-            if headers:
-                with contextlib.suppress(Exception):
-                    await page.set_extra_http_headers(headers)
-
-            if method and method.upper() == "POST":
-                async def _handle_initial_post(route: Any) -> None:
-                    req = route.request
-                    if req.is_navigation_request() and req.url.split("#")[0] == url.split("#")[0]:
-                        await route.continue_(method="POST", post_data=body or "")
-                    else:
-                        await route.continue_()
-                with contextlib.suppress(Exception):
-                    await page.route(url, _handle_initial_post)
-
-            logger.info("cloakbrowser: navigating -> %s (timeout=%.1fs)", url, timeout_ms / 1000)
-            try:
-                resp = await page.goto(url, wait_until=load_state, timeout=timeout_ms)
-                if resp is not None and getattr(resp, "status", None):
-                    status_code = resp.status
-                    resp_headers = dict(getattr(resp, "headers", None) or {})
-            except Exception as nav_err:
-                if proxy and is_proxy_error(str(nav_err)):
-                    raise RuntimeError(f"Proxy {mask_proxy(proxy)} failed: {redact(str(nav_err).splitlines()[0])}") from nav_err
-                if "Download is starting" in str(nav_err) or downloads:
-                    logger.info("cloakbrowser: %s is a file download; not fetching it", url)
-                else:
-                    logger.warning("cloakbrowser navigation warning on %s: %s", url, redact(str(nav_err)))
-
-            # Settle period for challenge scripts to execute
-            await asyncio.sleep(2.5)
-            # Check for interstitial wall, embedded Turnstile widget, or a not-yet-rendered target selector
-            wall = not await self._is_bypassed(page)
-            embedded = await self._turnstile_pending(page)
-            missing = selector is not None and not await self._has_selector(page, selector)
-
-            if wall or embedded or missing:
-                reasons = [
-                    r for r, on in (
-                        ("interstitial wall", wall),
-                        ("embedded Turnstile pending", embedded),
-                        (f"selector '{selector}' not rendered", missing),
-                    ) if on
-                ]
-                logger.info("Solver loop entered: %s", ", ".join(reasons))
-                notes.append(f"Solver triggered: {', '.join(reasons)}")
-
-                last_click = 0.0
-                extended = False
-                deadline = time.monotonic() + cf_wait
-                fresh_clearance_at: float | None = None
-
-                # Snapshot clearance present before solver execution (e.g. from pre-injected cookies)
-                raw_init_cookies = await _bounded(context.cookies())
-                initial_clearance = next(
-                    (c.get("value") for c in raw_init_cookies if c.get("name") == "cf_clearance"),
-                    None,
-                )
-                if initial_clearance and wall:
-                    logger.info("Pre-injected cf_clearance did not bypass challenge wall; awaiting fresh Turnstile solve")
-
-                while not await self._is_ready(page, selector):
-                    if time.monotonic() >= deadline:
-                        break
-                    if last_doc.get("status") in _ORIGIN_REFUSAL_STATUSES and await self._is_bypassed(page):
-                        origin_refused = True
-                        notes.append(f"Origin answered HTTP {last_doc['status']} past the challenge -> solver stopped early")
-                        logger.info("Origin refused %s with HTTP %s; stopping solver early", url, last_doc["status"])
-                        break
-
-                    # 1. Real-time fresh cf_clearance detection
-                    raw_cookies = await _bounded(context.cookies())
-                    current_clearance = next(
-                        (c.get("value") for c in raw_cookies if c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10),
-                        None,
-                    )
-                    is_fresh_clearance = bool(
-                        current_clearance and (initial_clearance is None or current_clearance != initial_clearance)
-                    )
-
-                    if is_fresh_clearance:
-                        if fresh_clearance_at is None:
-                            fresh_clearance_at = time.monotonic()
-                            logger.info("Fresh cf_clearance cookie obtained during solve loop")
-                            notes.append("Fresh cf_clearance obtained")
-
-                        # Give Cloudflare client script 3.5s to complete its natural auto-redirect.
-                        # If still on challenge page after 3.5s, execute at most ONE reload to target URL.
-                        title = (await _bounded(page.title())).lower()
-                        is_challenge = any(w in title for w in ("just a moment", "verify you are human", "attention required", "security check"))
-                        if is_challenge and not attempted_clearance_reload and (time.monotonic() - fresh_clearance_at >= 3.5):
-                            attempted_clearance_reload = True
-                            logger.info("Fresh clearance present but still on challenge page -> executing single reload")
-                            notes.append("Navigating to destination with fresh clearance")
-                            with contextlib.suppress(Exception):
-                                resp = await page.goto(url, wait_until=load_state, timeout=15000)
-                                if resp is not None and getattr(resp, "status", None):
-                                    status_code = resp.status
-                                    resp_headers = dict(getattr(resp, "headers", None) or {})
-                            await asyncio.sleep(1.0)
-                            if await self._is_bypassed(page):
-                                logger.info("Page successfully cleared after single clearance reload!")
-                                break
-
-                    # 2. Throttled interactive click attempt
-                    if time.monotonic() - last_click >= 2.5:
-                        if await self._click_turnstile_checkbox(page):
-                            last_click = time.monotonic()
-                            for _ in range(15 if await self._is_bypassed(page) else 0):
-                                await asyncio.sleep(0.2)
-                                with contextlib.suppress(Exception):
-                                    tok = (await _bounded(page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or []))).get("token")
-                                    if tok:
-                                        ts_token = tok
-                                        break
-
-                    # 3. Handle embedded widget after interstitial wall
-                    if not extended and await self._is_bypassed(page) and await self._turnstile_pending(page):
-                        extended = True
-                        deadline = max(deadline, time.monotonic() + 20.0)
-                        notes.append("Embedded widget after wall -> solve window extended")
-
-                    await asyncio.sleep(0.8)
-
-                # Post-loop clearance navigation check (only if fresh clearance exists and never reloaded)
-                raw_cookies = await _bounded(context.cookies())
-                final_clearance = next(
-                    (c.get("value") for c in raw_cookies if c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10),
-                    None,
-                )
-                is_fresh_final = bool(
-                    final_clearance and (initial_clearance is None or final_clearance != initial_clearance)
-                )
-                if is_fresh_final and not await self._is_bypassed(page) and not attempted_clearance_reload:
-                    attempted_clearance_reload = True
-                    logger.info("Fresh clearance present at loop exit -> executing single reload to target URL")
-                    notes.append("Executing reload with clearance cookie")
-                    with contextlib.suppress(Exception):
-                        resp = await page.goto(url, wait_until=load_state, timeout=15000)
-                        if resp is not None and getattr(resp, "status", None):
-                            status_code = resp.status
-                            resp_headers = dict(getattr(resp, "headers", None) or {})
-                    await asyncio.sleep(1.0)
-
-                if await self._is_ready(page, selector):
-                    notes.append("Solver finished: page ready")
-                    logger.info("Challenge/widget resolved successfully")
-                else:
-                    if await self._turnstile_pending(page):
-                        notes.append("Embedded Turnstile still unresolved at timeout")
-                    try:
-                        title = await _bounded(page.title())
-                        st = await _bounded(page.evaluate(_TURNSTILE_STATE_JS))
-                        frames = [f.url[:90] for f in page.frames if "challenges.cloudflare" in (f.url or "")]
-                        cbs = []
-                        for f in page.frames:
-                            if "challenges.cloudflare" in (f.url or ""):
-                                try:
-                                    cbs.append(await _bounded(f.evaluate(_FIND_CHECKBOX_JS)))
-                                except Exception as fe:
-                                    cbs.append(f"err:{fe}"[:80])
-                        notes.append(f"debug: title={title!r} state={st} cf_frames={frames} checkboxes={cbs}")
-                    except Exception as de:
-                        notes.append(f"debug failed: {de}")
-
-            # Final state capture
-            bypassed = await self._is_bypassed(page)
-            if not bypassed and not attempted_clearance_reload:
-                raw_cookies = await _bounded(context.cookies())
-                final_clearance = next(
-                    (c.get("value") for c in raw_cookies if c.get("name") == "cf_clearance" and len(c.get("value", "")) > 10),
-                    None,
-                )
-                if final_clearance and (initial_clearance is None or final_clearance != initial_clearance):
-                    attempted_clearance_reload = True
-                    logger.info("Fresh cf_clearance exists; executing recovery reload to target...")
-                    with contextlib.suppress(Exception):
-                        resp = await page.goto(url, wait_until="domcontentloaded", timeout=12000)
-                        if resp is not None and getattr(resp, "status", None):
-                            status_code = resp.status
-                            resp_headers = dict(getattr(resp, "headers", None) or {})
-                    await asyncio.sleep(1.0)
-                    bypassed = await self._is_bypassed(page)
-
-            if bypassed and last_doc:
-                status_code = last_doc["status"]
-                resp_headers = last_doc["headers"]
-            # Body is already decoded text: encoding/length headers from the wire would mislead API clients
-            resp_headers = {
-                k: v for k, v in resp_headers.items()
-                if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")
-            }
-            if bypassed:
-                status = status_code if (last_doc or status_code != 403) else 200
-            else:
-                status = status_code if status_code != 200 else 403
-            if bypassed and selector and not origin_refused and not await self._has_selector(page, selector):
-                notes.append(f"Timed out waiting for selector '{selector}' (cf_wait={cf_wait}s)")
-                logger.warning("Selector '%s' never appeared on %s within cf_wait budget", selector, url)
-            final_url = page.url or url
-
-            widget_present = False
-            # Embedded widgets are injected ~2s after the real page loads, so right after a wall solve "no widget yet"
-            # is not final: give it a short window to appear before concluding the page has none
-            widget_deadline = time.monotonic() + (5.0 if wall and not origin_refused else 0.0)
-            while True:
-                with contextlib.suppress(Exception):
-                    widget_present = bool((await _bounded(page.evaluate(_TURNSTILE_STATE_JS))).get("present"))
-                if widget_present or time.monotonic() >= widget_deadline:
-                    break
-                await asyncio.sleep(1.0)
-            if ts_token and not capture_token:
-                capture_token = True
-                notes.append("Token caught right after solve -> capturing")
-            if not widget_present and not capture_token and wall:
-                # The widget may already be solved and gone from the DOM while its token input still holds the value
-                with contextlib.suppress(Exception):
-                    if (await _bounded(page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or []))).get("token"):
-                        capture_token = True
-                        notes.append("Solved Turnstile token found in DOM -> capturing")
-            if widget_present and not capture_token and not origin_refused:
-                capture_token = True
-                notes.append("Turnstile widget detected -> auto-capturing token")
-            if capture_token and not origin_refused:
-                async def _read_token(window: float) -> None:
-                    nonlocal ts_token, ts_sitekey
-                    until = time.monotonic() + window
-                    last_try = 0.0
-                    while True:
-                        # The widget checkbox may still be waiting for a click (it renders a few seconds late)
-                        if widget_present and not ts_token and time.monotonic() - last_try >= 3.0:
-                            last_try = time.monotonic()
-                            with contextlib.suppress(Exception):
-                                await self._click_turnstile_checkbox(page)
-                        try:
-                            info = await _bounded(page.evaluate(_TURNSTILE_TOKEN_JS, token_field_names or []))
-                            ts_token = (info or {}).get("token") or ts_token
-                            ts_sitekey = (info or {}).get("sitekey") or ts_sitekey
-                        except Exception as te:
-                            logger.debug("Turnstile token read failed: %s", te)
-                        if ts_token or time.monotonic() >= until:
-                            return
-                        await asyncio.sleep(1.0)
-
-                await _read_token(15.0 if widget_present else 3.0)
-                if ts_token:
-                    ts_solved_at = time.time()
-                    notes.append("Turnstile token captured (single-use, not cached)")
-                else:
-                    notes.append("capture_token set but no Turnstile token found on page")
-
-            # The site's own token POST + answer can lag the solve by a moment
-            if (wall or embedded) and not submissions:
-                await asyncio.sleep(1.5)
-            if submissions and not ts_token:
-                ts_token = submissions[0]["token"]
-                ts_solved_at = time.time()
-                notes.append("Token read from the site's own submit request (widget already removed from DOM)")
-            if submissions:
-                notes.append(f"Site submitted the token itself -> {len(submissions)} submission(s) captured in token_submissions")
-
-            if click_selector and not origin_refused:
-                logger.info("Handling click_selector '%s'...", click_selector)
-                # Fail-fast: only wait for disabled flag to clear if selector actually exists in DOM
-                has_target = False
-                with contextlib.suppress(Exception):
-                    has_target = bool(await _bounded(page.eval_on_selector(click_selector, "el => true")))
-
-                if has_target:
-                    # A button gated by a challenge enables itself once the widget is solved: wait for that
-                    for _ in range(15):
-                        btn_disabled = True
-                        with contextlib.suppress(Exception):
-                            btn_disabled = await _bounded(page.eval_on_selector(click_selector, "el => el.disabled"))
-                        if not btn_disabled or ts_token:
-                            break
-                        await asyncio.sleep(1.0)
-                else:
-                    logger.debug("Selector '%s' not present in DOM; skipping disabled-wait loop", click_selector)
-
-                clicked = False
-                try:
-                    _CLICK_ACTION_JS = """(sel) => {
-                        const btn = document.querySelector(sel);
-                        if (btn) {
-                            btn.disabled = false;
-                            btn.click();
-                            return true;
-                        }
-                        const f = document.querySelector('form');
-                        if (f) {
-                            f.submit();
-                            return true;
-                        }
-                        return false;
-                    }"""
-                    clicked = await _bounded(page.evaluate(_CLICK_ACTION_JS, click_selector))
-                except Exception as ce:
-                    logger.warning("Click evaluation failed: %s", ce)
-
-                if clicked:
-                    notes.append(f"Clicked selector: {click_selector}")
-                    outcome = await self._await_click_outcome(page, chain, downloads)
-                    notes.append(f"After click: {outcome}")
-                    final_url = page.url or final_url
-
-            body = ""
-            result_note: str | None = None
-            # A binary main document (video, archive, attachment...) is the same case as a download: same rule as the
-            # HTTP engine. Chromium opens playable media in its own player page and keeps buffering it, so stop here
-            doc_headers = {str(k).lower(): str(v) for k, v in (last_doc.get("headers") or {}).items()}
-            media_reason = None if downloads else _skip_reason("GET", doc_headers, None, 1 << 62)
-            if downloads or media_reason:
-                if downloads:
-                    final_url = downloads[-1]["url"]
-                    result_note = f"navigation became a file download ({downloads[-1]['filename'] or 'file'}); file not fetched"
-                else:
-                    final_url = page.url or final_url
-                    result_note = f"{media_reason.replace(' not read', '')}; file not fetched"
-                with contextlib.suppress(Exception):
-                    await _bounded(page.goto("about:blank", timeout=5000))  # stop the player buffering the file
-                notes.append(result_note)
-                if status_code in (0, 301, 302, 303, 307, 308):
-                    status = 200
-            else:
-                for _ in range(5):
-                    try:
-                        body = await _bounded(page.content())
-                        final_url = page.url or final_url
-                        break
-                    except Exception:
-                        await asyncio.sleep(1.0)
-
-            raw_cookies = await _bounded(context.cookies())
-            harvested = {c["name"]: c["value"] for c in raw_cookies}
-
-            with contextlib.suppress(Exception):
-                ua = await _bounded(page.evaluate("navigator.userAgent"))
-                if ua and isinstance(ua, str) and len(ua) > 10:
-                    user_agent = ua
-                    if not self._default_browser_ua:
-                        self._default_browser_ua = ua
-
-        finally:
-            if context is not None:
-                with contextlib.suppress(Exception):
-                    await asyncio.wait_for(asyncio.shield(context.close()), timeout=5.0)
-
-            elapsed_ms = int((time.monotonic() - t0) * 1000)
-            logger.info(
-                "cloakbrowser: done -> %s | status=%d | cookies=%d | elapsed=%dms",
-                final_url, status, len(harvested), elapsed_ms,
-            )
-
-        return BrowserResult(
-            status_code=status,
-            body=body,
-            cookies=harvested,
-            final_url=final_url,
-            headers=resp_headers,
-            elapsed_ms=elapsed_ms,
-            user_agent=user_agent,
-            notes=notes,
-            turnstile_token=ts_token,
-            turnstile_sitekey=ts_sitekey,
-            turnstile_solved_at=ts_solved_at,
-            token_submissions=submissions,
-            redirect_chain=chain if len(chain) > 1 or any(h["location"] for h in chain) else [],
-            note=result_note,
-        )
-
+        """Shadow-DOM + selector + bbox walk inside the CF iframe; see utils.challenge."""
+        return await click_turnstile_once(page)
 
 pool = BrowserPool()

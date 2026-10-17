@@ -43,12 +43,9 @@ Docker: `docker compose up -d --build`. Interactive docs are at `/docs`.
 | `click_selector` | Click an element once the page is ready (waits while it is disabled, e.g. gated by a challenge) and report what the click did: every navigation hop in `redirect_chain`, the file URL if it started a download |
 | `cf_wait` | Seconds the solver may spend (default 25.0, exits immediately once resolved) |
 | `session_id` | Isolated session namespace to prevent cookie collisions between concurrent scraping flows |
-| `proxy` | Egress proxy (`http://`, `https://`, `socks5://`, `socks5h://`, credentials allowed). Omit for the `DEFAULT_PROXY` rule, `"direct"` to bypass it. See [Proxies](#proxies) |
+| `proxy` | Egress proxy (`http://`, `https://`, `socks5://`, `socks5h://`, credentials allowed). Omit for direct / server WARP egress, `"direct"` to bypass. See [Proxies](#proxies) |
 | `preset`, `user_agent` | Network identity |
 | `cookie_ttl`, `cookie_allowlist`, `inject_cookies` | Cookie cache control |
-| `capture_token` | Return the Turnstile token |
-| `token_field_names` | Extra field names to read the token from |
-| `auto_token` | Capture automatically when the page embeds a widget (default `false`) |
 
 ### In-Page Actions & Multi-Step Flows
 
@@ -67,11 +64,22 @@ curl -X POST https://your-domain.example/fetch \
   }'
 ```
 
-### Turnstile tokens
+### Standalone Turnstile Token Solver
 
-The response carries `turnstile_token`, `turnstile_sitekey` and `turnstile_solved_at`. Tokens are single use and never cached.
+For minting tokens directly from sitekey + target domain binding (without loading heavy third-party assets):
 
-Many sites submit the token themselves the moment it is issued and then remove the widget. For those, `token_submissions` holds the request the page sent and the server's answer, which is usually the useful part.
+```bash
+curl -X POST https://your-domain.example/solve-turnstile \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sitekey": "0x4AAAAAA...",
+    "siteurl": "https://example.com/protected-form",
+    "timeout": 30
+  }'
+```
+
+Returns `{"solved": true, "token": "0.xxxx", "elapsed": 3.42, "siteurl": "https://example.com/protected-form", "proxy": null}`. Tokens are single use and short-lived.
 
 ### Proxies
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.core.proxy import DIRECT_SENTINELS, normalize_proxy
+from app.core.proxy import DIRECT_SENTINELS, forbidden_target, normalize_proxy
 
 
 class RequestMeta(BaseModel):
@@ -114,6 +114,8 @@ class FetchRequest(BaseModel):
     )
     cf_wait: float = Field(
         default=25.0,
+        ge=1.0,
+        le=120.0,
         description="Maximum seconds to wait for Turnstile resolution and for `wait_for_selector` to appear.",
         examples=[25.0],
     )
@@ -122,7 +124,7 @@ class FetchRequest(BaseModel):
         description=(
             "CSS selector that must exist in the live DOM before the page is returned. Forces the browser engine "
             "if the fast-path HTML lacks it; use for content injected after an embedded Turnstile is solved. "
-            "Returns HTTP 408 if it never appears within `cf_wait`."
+            "If it never appears within `cf_wait`, the page is returned as it is and `logs` says the selector timed out."
         ),
         examples=[".server-btn"],
     )
@@ -142,7 +144,10 @@ class FetchRequest(BaseModel):
         default=None,
         description=(
             "Egress proxy: 'http://user:pass@host:port', 'https://…' or 'socks5://user:pass@host:port' (socks5h accepted). "
-            "Omit to use the server's DEFAULT_PROXY rule, or send 'direct' to bypass it. "
+            "A proxy (or 'direct') pins both the HTTP and the browser engine to it. Omitted: the HTTP engine goes "
+            "direct and only a browser escalation uses the server's WARP_PROXY; once that browser earned clearance "
+            "for the host, its HTTP requests follow through WARP. Proxied solving can be disabled server-side "
+            "(MAX_BROWSERS=0 → 409). "
             "Invalid proxies are rejected (422) instead of silently connecting direct."
         ),
         examples=[None],
@@ -164,6 +169,8 @@ class FetchRequest(BaseModel):
     )
     timeout: int = Field(
         default=30,
+        ge=1,
+        le=120,
         description="Request timeout in seconds.",
         examples=[30],
     )
@@ -193,23 +200,6 @@ class FetchRequest(BaseModel):
         default=35,
         description="Maximum number of cookies allowed in request header before truncating oldest to prevent HTTP 400 buffer overflow.",
         examples=[35],
-    )
-
-    # Turnstile token capture (for your own / authorized sites; tokens are one-time and never cached)
-    capture_token: bool = Field(
-        default=False,
-        description="Return the Turnstile response token issued to the browser tab (forces browser engine). Never cached: tokens are single-use.",
-        examples=[False],
-    )
-    auto_token: bool = Field(
-        default=False,
-        description="Escalate to the browser and capture the token automatically when the page embeds a Turnstile widget. Set false to keep the fast HTTP path.",
-        examples=[False],
-    )
-    token_field_names: list[str] | None = Field(
-        default=None,
-        description="Extra input/textarea names (or glob patterns) to read the token from, e.g. ['ts']. Implies capture_token.",
-        examples=[["ts"]],
     )
 
     # HTML parsing settings
@@ -246,7 +236,24 @@ class FetchRequest(BaseModel):
         }
     }
 
-    @field_validator("body", "proxy", "user_agent", "http_version", "selector", "wait_for_selector", mode="before")
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise ValueError("URL must be a string")
+        v = v.strip()
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https:// (file:// and internal protocols are forbidden)")
+        from urllib.parse import urlparse
+        parsed = urlparse(v)
+        if not parsed.hostname:
+            raise ValueError("URL must contain a valid hostname")
+        reason = forbidden_target(parsed.hostname)
+        if reason:
+            raise ValueError(reason)
+        return v
+
+    @field_validator("proxy", "user_agent", "http_version", "selector", "wait_for_selector", mode="before")
     @classmethod
     def clean_dummy_strings(cls, v: Any) -> Any:
         if isinstance(v, str):
@@ -254,6 +261,19 @@ class FetchRequest(BaseModel):
             if val.lower() in ("string", "none", "null", ""):
                 return None
             return val
+        return v
+
+    @field_validator("selector", "wait_for_selector")
+    @classmethod
+    def validate_css(cls, v: str | None) -> str | None:
+        # Reject a broken selector up front (422) instead of failing after the fetch or browser job already ran
+        if v is not None:
+            from selectolax.lexbor import LexborHTMLParser
+
+            try:
+                LexborHTMLParser("<p></p>").css_first(v)
+            except Exception as exc:
+                raise ValueError(f"Invalid CSS selector {v!r}: {exc}") from None
         return v
 
     @field_validator("proxy")
@@ -272,8 +292,8 @@ class FetchRequest(BaseModel):
 
     @model_validator(mode="after")
     def check_engine_flags(self) -> "FetchRequest":
-        if self.force_http and (self.force_browser or self.capture_token or self.token_field_names):
-            raise ValueError("force_http cannot be combined with force_browser, capture_token or token_field_names")
+        if self.force_http and (self.force_browser or self.click_selector):
+            raise ValueError("force_http cannot be combined with force_browser or click_selector")
         return self
 
 
@@ -324,21 +344,6 @@ class FetchResponse(BaseModel):
         default=None,
         description="Results parsed by CSS selector if specified in request.",
         examples=[["https://example.com/download/1.zip", "https://example.com/download/2.zip"]],
-    )
-    turnstile_token: str | None = Field(
-        default=None,
-        description="Turnstile response token read from the page (only when capture_token/token_field_names is set). Single-use, short-lived.",
-        examples=[None],
-    )
-    turnstile_sitekey: str | None = Field(default=None, description="Sitekey of the Turnstile widget, if found.", examples=[None])
-    turnstile_solved_at: float | None = Field(default=None, description="Unix timestamp when the token was read.", examples=[None])
-    token_submissions: list[dict[str, Any]] | None = Field(
-        default=None,
-        description=(
-            "Requests the page itself sent carrying the Turnstile token (site callback -> POST), with the server's answer. "
-            "Tokens are single-use, so when the site already submitted it, the response here is the useful result."
-        ),
-        examples=[[{"url": "https://example.com/f/abc", "method": "POST", "response_status": 200, "response_body": "{\"link\": \"...\"}"}]],
     )
     logs: list[str] = Field(
         default_factory=list,

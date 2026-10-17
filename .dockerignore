@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .env
 .git/
+
+# Persisted cookie cache (holds session cookies)
+data/
+site/
+docs/
+.cache/

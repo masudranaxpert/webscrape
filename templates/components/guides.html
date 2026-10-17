@@ -1,0 +1,422 @@
+    <!-- Dedicated Feature Guides -->
+    <section class="docs-section" id="guides">
+      <h2 style="font-size: 1.8rem; font-weight: 800; margin-bottom: 24px;">Feature Guides &amp; Examples</h2>
+
+      <div class="guide-box">
+        <div class="guide-header">
+          <div class="guide-title">
+            <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+            Topic Guides
+          </div>
+        </div>
+
+        <div class="guide-tabs-nav">
+          <button type="button" class="guide-tab-btn active" data-guide="guideSelectors">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            Selectors
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideCookies">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 12h8" />
+            </svg>
+            Cookies
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideCloudflare">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Cloudflare
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideNetworking">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
+              <polyline points="18 8 22 12 18 16" />
+            </svg>
+            Fingerprints
+          </button>
+          <button type="button" class="guide-tab-btn" data-guide="guideProxies">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            Proxies
+          </button>
+          <button type="button" class="guide-tab-btn guide-tab-btn-accent" data-guide="guideExamples">
+            <svg class="svg-icon" style="width:14px;height:14px" viewBox="0 0 24 24">
+              <polyline points="16 18 22 12 16 6"/>
+              <polyline points="8 6 2 12 8 18"/>
+            </svg>
+            Examples
+          </button>
+        </div>
+
+        <div class="guide-tab-content">
+          <!-- Selectors Guide -->
+          <div class="guide-pane active" id="guideSelectors">
+            <p>
+              The API includes a high-performance C-based HTML parser (<code>selectolax Lexbor</code>) on the backend.
+              Instead of downloading and parsing megabytes of HTML in your client code, you can pass CSS selectors
+              directly to receive cleanly extracted text or attributes.
+            </p>
+            <ul>
+              <li><strong><code>selector</code></strong>: Any standard CSS selector (e.g. <code>"h1"</code>,
+                <code>"table.torrent-table > tbody > tr"</code>, <code>"a.download-btn"</code>).</li>
+              <li><strong><code>selector_all</code></strong>: Set to <code>true</code> to return an array of all
+                matches; set <code>false</code> to return the first matching element.</li>
+              <li><strong><code>selector_attr</code></strong>: Choose <code>"text"</code> (default, trimmed innerText),
+                <code>"html"</code> (outerHTML), or any HTML attribute name like <code>"href"</code>,
+                <code>"src"</code>, <code>"data-id"</code>.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Extract all download links with CSS selectors</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/items"</span>,
+  <span class="json-key">"selector"</span>: <span class="json-string">"a.download-btn"</span>,
+  <span class="json-key">"selector_all"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"selector_attr"</span>: <span class="json-string">"href"</span>
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Cookies Guide -->
+          <div class="guide-pane" id="guideCookies">
+            <p>
+              The service includes a built-in <strong>Subdomain-Aware LRU In-Memory Cookie Store with Session Isolation &amp; Pattern Allowlist Filtering</strong>.
+              When a Cloudflare Turnstile challenge is solved, clearance tokens and sessions are stored automatically. Subsequent requests reuse these cookies to hit the fast-path (300ms) without opening a browser.
+            </p>
+            <ul>
+              <li><strong>Dual-Store Architecture (Zero LRU Pollution)</strong>: Separates long-lived domain caches (64 slots, 24h TTL) from ephemeral scraping sessions (256 slots, 10m TTL). High-volume task session churn never evicts root domain clearances (such as <code>example.com</code>).</li>
+              <li><strong>Strict Session Isolation</strong>: When <code>session_id</code> is provided (e.g. <code>"task-dl-1"</code>), the request runs in an isolated sandbox. It never falls back to the root domain and never writes to root, preventing session cookie contamination and bot-score cross-linking via <code>__cf_bm</code>.</li>
+              <li><strong>Synchronized Root Clearance</strong>: Non-session domain clearances write strictly <code>cf_clearance</code> to the root domain, atomically synchronizing matching User-Agent and proxy identities. When a challenge wall is encountered, rejected clearance is immediately purged from both the local session and root storage.</li>
+              <li><strong><code>cookie_allowlist</code></strong>: Array of allowed cookie names or glob/regex wildcard patterns (e.g. <code>["cf_*", "__cf*", "*session*", "PHPSESSID"]</code>). Non-essential tracking cookies and analytics are pruned automatically.</li>
+              <li><strong><code>cookie_limit</code></strong>: Upper bound on the number of cookies sent in request headers (default <code>35</code>, 3.5 KB max) to prevent HTTP 400 header overflow.</li>
+              <li><strong><code>inject_cookies</code></strong>: Inject custom session cookies before navigation. Injected cookies always bypass allowlist filters and take precedence.</li>
+              <li><strong><code>cookie_ttl</code></strong>: Cache duration in seconds for domain-level entries (default <code>86400</code> = 24 hours). Ephemeral sessions default to 10 minutes (<code>600s</code>).</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Isolated Session &amp; Cookie Allowlist</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://new5.example.com/protected-page"</span>,
+  <span class="json-key">"session_id"</span>: <span class="json-string">"task-dl-42"</span>,
+  <span class="json-key">"cookie_allowlist"</span>: [
+    <span class="json-string">"cf_*"</span>,
+    <span class="json-string">"__cf*"</span>,
+    <span class="json-string">"*session*"</span>,
+    <span class="json-string">"PHPSESSID"</span>
+  ],
+  <span class="json-key">"cookie_limit"</span>: <span class="json-number">25</span>
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Cloudflare & Browser Guide -->
+          <div class="guide-pane" id="guideCloudflare">
+            <p>
+              The system keeps a <strong>persistent Chromium process per egress identity</strong> (direct, or one per
+              proxy), capped by <code>MAX_BROWSERS</code>. Incoming requests acquire a worker tab through a semaphore pool
+              (<code>MAX_TABS</code>) and clean up their isolated browser context on completion. Idle processes are
+              recycled after <code>BROWSER_MAX_LIFETIME_SEC</code>.
+            </p>
+            <ul>
+              <li><strong><code>force_browser</code></strong>: Set to <code>true</code> to skip the HTTP fast-path and
+                drive Chrome directly. Use this for complex Single Page Apps (SPA) that require client-side JavaScript
+                rendering.</li>
+              <li><strong><code>force_http</code></strong>: Set to <code>true</code> to stay on the HTTP engine only. The
+                browser is never started; a 403 or challenge page is returned as-is. Use this for POST/API calls where a
+                403 comes from the site itself, not Cloudflare.</li>
+              <li><strong><code>cf_wait</code></strong>: Maximum duration in seconds to wait for Cloudflare Turnstile to
+                solve and redirect (default <code>25.0</code>s). Early-exits immediately as soon as the challenge is solved.</li>
+              <li><strong>Dynamic Redirect Cache</strong>: When an origin domain redirects to a separate domain
+                post-challenge (e.g. <code>.com</code> → <code>.net</code>), the API caches the destination so
+                subsequent requests hit the final URL directly on the fast-path.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Forcing browser with custom challenge timeout</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/dynamic-spa"</span>,
+  <span class="json-key">"force_browser"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"cf_wait"</span>: <span class="json-number">15.0</span>
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Networking Guide -->
+          <div class="guide-pane" id="guideNetworking">
+            <p>
+              Fine-tune the wire-level network behavior, fingerprint profiles and User-Agent headers.
+            </p>
+            <div class="callout callout-info">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <div>
+                <strong>Anti scrapes, it does not download.</strong> Video, audio, image, archive and attachment
+                responses, and any body over <code>MAX_RESPONSE_MB</code> (16), are never read into memory. You still
+                get <code>status_code</code>, <code>headers</code> and <code>url</code> (the final address after
+                redirects, ideal for download-gateway links) with an empty <code>body</code>, plus
+                <code>meta.body_truncated: true</code> and a <code>meta.body_note</code> reason.
+              </div>
+            </div>
+            <ul>
+              <li><strong><code>user_agent</code></strong>: Pass a custom User-Agent string to override the preset's
+                default. If omitted, the authentic preset User-Agent is sent.</li>
+              <li><strong><code>preset</code></strong>: Select from bundled browser fingerprint profiles:
+                <code>"chrome-latest-windows"</code>, <code>"chrome-latest-linux"</code>,
+                <code>"firefox-latest"</code>.
+              </li>
+              <li><strong><code>proxy</code></strong>: Route the request through an HTTP, HTTPS or SOCKS5 proxy. Each proxy
+                gets its own browser process with matching timezone, locale and WebRTC IP.</li>
+              <li><strong><code>http_version</code></strong>: Force protocol version (<code>"h1"</code>,
+                <code>"h2"</code>, <code>"h3"</code>) or leave as <code>null</code> for auto-negotiation via ALPN.</li>
+            </ul>
+
+            <div class="code-block-wrapper">
+              <div class="code-block-header">
+                <span>Example: Custom User-Agent, preset and protocol</span>
+                <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+              </div>
+              <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/api/data"</span>,
+  <span class="json-key">"user_agent"</span>: <span class="json-string">"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"</span>,
+  <span class="json-key">"preset"</span>: <span class="json-string">"chrome-latest-windows"</span>,
+  <span class="json-key">"http_version"</span>: <span class="json-string">"h2"</span>,
+  <span class="json-key">"timeout"</span>: <span class="json-number">45</span>
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Proxies Guide -->
+          <div class="guide-pane" id="guideProxies">
+            <p>
+              Send any request through a residential, ISP or datacenter proxy. Cloudflare binds <code>cf_clearance</code>
+              to the IP that earned it and checks that the browser's timezone, language and WebRTC address agree with that
+              IP, so the API treats every proxy as a separate <strong>egress identity</strong> end to end.
+            </p>
+
+            <div class="proxy-flow">
+              <div class="flow-step">
+                <h4>Resolve</h4>
+                <p>Request <code>proxy</code> &gt; <code>"direct"</code> opt-out &gt; server WARP egress.</p>
+              </div>
+              <div class="flow-step">
+                <h4>Isolate</h4>
+                <p>One Chromium process per proxy. SOCKS5 credentials are handed to Chromium itself.</p>
+              </div>
+              <div class="flow-step">
+                <h4>Match</h4>
+                <p>Timezone and locale come from the exit IP (GeoIP); WebRTC is pinned to that IP.</p>
+              </div>
+              <div class="flow-step">
+                <h4>Cache</h4>
+                <p>Cookies are namespaced per proxy, so a clearance is never replayed from another IP.</p>
+              </div>
+            </div>
+
+            <h3 class="guide-subtitle">Supported formats</h3>
+            <div class="mini-table-wrap">
+              <table class="mini-table">
+                <thead>
+                  <tr><th>Format</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>http://user:pass@host:port</code></td><td>Most residential providers. Works on HTTP engine and browser.</td></tr>
+                  <tr><td><code>https://host:port</code></td><td>TLS connection to the proxy itself.</td></tr>
+                  <tr><td><code>socks5://user:pass@host:port</code></td><td>Authenticated SOCKS5, including special password chars (auto-encoded).</td></tr>
+                  <tr><td><code>socks5h://host:port</code></td><td>DNS resolved by the proxy (browser default for SOCKS5).</td></tr>
+                  <tr><td><code>"direct"</code></td><td>Explicitly bypass server egress for this request.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3 class="guide-subtitle">Examples</h3>
+            <div class="example-grid">
+              <div class="code-block-wrapper">
+                <div class="code-block-header">
+                  <span>Residential HTTP proxy</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/protected"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-string">"http://user:pass@res.example.net:8000"</span>
+}</code></pre>
+              </div>
+
+              <div class="code-block-wrapper">
+                <div class="code-block-header">
+                  <span>SOCKS5 + isolated session</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code>{
+  <span class="json-key">"url"</span>: <span class="json-string">"https://example.com/download/42"</span>,
+  <span class="json-key">"proxy"</span>: <span class="json-string">"socks5://user:pass@1.2.3.4:1080"</span>,
+  <span class="json-key">"session_id"</span>: <span class="json-string">"task-dl-42"</span>,
+  <span class="json-key">"force_browser"</span>: <span class="json-boolean">true</span>
+}</code></pre>
+              </div>
+            </div>
+
+            <h3 class="guide-subtitle">Failure handling</h3>
+            <div class="mini-table-wrap">
+              <table class="mini-table">
+                <thead>
+                  <tr><th>Situation</th><th>Response</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Malformed proxy (no scheme, no port, unsupported scheme)</td><td><code>422</code>, rejected before any network call; never falls back to direct connection.</td></tr>
+                  <tr><td>Proxy refuses or drops the connection</td><td><code>status_code: 502</code> with a <code>[PROXY-FAIL]</code> log; no browser solve is wasted.</td></tr>
+                  <tr><td>Any log, error or response body</td><td>Credentials are masked as <code>socks5://***@host:port</code>.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Usage Examples Guide Tab (Integrated!) -->
+          <div class="guide-pane" id="guideExamples">
+            <p>
+              Copy-pasteable code examples across languages and runtimes for stealth scraping and standalone Turnstile solving.
+            </p>
+
+            <div class="examples-subnav">
+              <button type="button" class="btn-sub-toggle active" data-lang="py">Python (httpx)</button>
+              <button type="button" class="btn-sub-toggle" data-lang="curl">cURL CLI</button>
+              <button type="button" class="btn-sub-toggle" data-lang="node">Node.js (Fetch/Axios)</button>
+              <button type="button" class="btn-sub-toggle" data-lang="solve">Turnstile Solver</button>
+            </div>
+
+            <!-- Python Subpane -->
+            <div class="example-lang-pane active" id="exPython">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Python (httpx) — Standard Stealth Fetch</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-keyword">import</span> httpx
+
+<span class="hl-comment"># Send stealth request with API key</span>
+response = httpx.<span class="hl-fn">post</span>(
+    <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: <span class="hl-string">"anti_secret_key_123"</span>},
+    json={
+        <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/protected-page"</span>,
+        <span class="json-key">"selector"</span>: <span class="hl-string">"title"</span>,
+        <span class="json-key">"cf_wait"</span>: <span class="hl-number">25.0</span>
+    },
+    timeout=<span class="hl-number">30.0</span>
+)
+
+data = response.<span class="hl-fn">json</span>()
+<span class="hl-fn">print</span>(<span class="hl-string">"Status Code:"</span>, data[<span class="hl-string">"status_code"</span>])
+<span class="hl-fn">print</span>(<span class="hl-string">"Engine Used:"</span>, data[<span class="hl-string">"meta"</span>][<span class="hl-string">"via"</span>])
+<span class="hl-fn">print</span>(<span class="hl-string">"Extracted:"</span>, data[<span class="hl-string">"extracted"</span>])</code></pre>
+              </div>
+
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Python (httpx) — Proxied Multi-Hop Task</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-keyword">import</span> os, httpx
+
+response = httpx.<span class="hl-fn">post</span>(
+    <span class="hl-string">"http://127.0.0.1:8000/fetch"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: os.environ.<span class="hl-fn">get</span>(<span class="hl-string">"ANTI_API_KEY"</span>, <span class="hl-string">"anti_secret_key_123"</span>)},
+    json={
+        <span class="json-key">"url"</span>: <span class="hl-string">"https://example.com/download-portal"</span>,
+        <span class="json-key">"proxy"</span>: <span class="hl-string">"http://user:pass@residential.proxy:8080"</span>,
+        <span class="json-key">"session_id"</span>: <span class="hl-string">"task-dl-42"</span>,
+        <span class="json-key">"click_selector"</span>: <span class="hl-string">"button#start-download"</span>
+    },
+    timeout=<span class="hl-number">60.0</span>
+)
+data = response.<span class="hl-fn">json</span>()
+<span class="hl-fn">print</span>(<span class="hl-string">"Redirect chain:"</span>, data[<span class="hl-string">"redirect_chain"</span>])</code></pre>
+              </div>
+            </div>
+
+            <!-- cURL Subpane -->
+            <div class="example-lang-pane" id="exCurl" style="display:none;">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>cURL — Fast-Path GET</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/fetch \
+  -H <span class="hl-string">"X-API-Key: anti_secret_key_123"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{
+    "url": "https://example.com/protected-page",
+    "preset": "chrome-latest-windows"
+  }'</span></code></pre>
+              </div>
+            </div>
+
+            <!-- Node.js Subpane -->
+            <div class="example-lang-pane" id="exNode" style="display:none;">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Node.js (fetch)</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-keyword">const</span> res = <span class="hl-keyword">await</span> <span class="hl-fn">fetch</span>(<span class="hl-string">'http://127.0.0.1:8000/fetch'</span>, {
+  method: <span class="hl-string">'POST'</span>,
+  headers: {
+    <span class="hl-string">'Content-Type'</span>: <span class="hl-string">'application/json'</span>,
+    <span class="hl-string">'X-API-Key'</span>: <span class="hl-string">'anti_secret_key_123'</span>
+  },
+  body: JSON.<span class="hl-fn">stringify</span>({
+    url: <span class="hl-string">'https://example.com/login'</span>,
+    force_browser: <span class="hl-keyword">true</span>,
+    cf_wait: <span class="hl-number">20</span>
+  })
+});
+<span class="hl-keyword">const</span> data = <span class="hl-keyword">await</span> res.<span class="hl-fn">json</span>();
+console.<span class="hl-fn">log</span>(data.status_code, data.cookies);</code></pre>
+              </div>
+            </div>
+
+            <!-- Turnstile Solver Subpane -->
+            <div class="example-lang-pane" id="exSolve" style="display:none;">
+              <div class="code-block-wrapper" style="margin-top:16px;">
+                <div class="code-block-header">
+                  <span>Solve Token via Standalone Solver (/solve-turnstile)</span>
+                  <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code><span class="hl-fn">curl</span> -X POST http://127.0.0.1:8000/solve-turnstile \
+  -H <span class="hl-string">"X-API-Key: anti_secret_key_123"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{
+    "sitekey": "0x4AAAAAAADn3gM1k2p1n_dummy",
+    "siteurl": "https://example.com/protected-form",
+    "timeout": 30
+  }'</span>
+
+<span class="hl-comment"># Response:</span>
+<span class="hl-comment"># {"solved": true, "token": "0.xxxx...", "elapsed": 3.42, "siteurl": "https://example.com/protected-form", "proxy": null}</span></code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>

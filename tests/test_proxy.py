@@ -1,6 +1,7 @@
 """Proxy support: validation, masking, routing, per-identity cookie namespaces and the keyed browser pool."""
 
 import asyncio
+import pytest
 import sys
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pydantic import ValidationError
 
 import app.core.proxy as proxy_mod
-from app.core.browser import BrowserPool, _Worker
+from app.core.browser import BrowserPool, BrowserPoolBusy, ProxySolvingDisabled, _Worker
 from app.core.cookie_store import CookieStore
 from app.core.proxy import (
     browser_proxy,
@@ -107,27 +108,22 @@ def test_proxy_error_detection():
     assert not is_proxy_error(None)
 
 
-# Default proxy routing
+# WARP_PROXY default egress: omission routes through it, 'direct'/'off' bypass, explicit wins
 def test_resolve_proxy_routing():
-    orig_default = proxy_mod._DEFAULT_PROXY
-    orig_domains = proxy_mod._DEFAULT_PROXY_DOMAINS
+    orig = proxy_mod._DEFAULT_EGRESS
     try:
-        default = "http://u:p@res.example:8000"
-        proxy_mod._DEFAULT_PROXY = default
-        proxy_mod._DEFAULT_PROXY_DOMAINS = ("target-site.site",)
-
-        assert resolve_proxy(None, "sub.target-site.example") == default
-        assert resolve_proxy(None, "target-site.site") == default
-        assert resolve_proxy(None, "nottarget-site.site") is None
-        assert resolve_proxy(None, "example.com") is None
+        assert resolve_proxy(None, "sub.target-site.example") is None
         assert resolve_proxy("direct", "sub.target-site.example") is None
+        assert resolve_proxy("off", "sub.target-site.example") is None
+        assert resolve_proxy("http://u:p@res.example:8000", "example.com") == "http://u:p@res.example:8000"
         assert resolve_proxy("http://other.example:1", "sub.target-site.example") == "http://other.example:1"
 
-        proxy_mod._DEFAULT_PROXY_DOMAINS = ()
-        assert resolve_proxy(None, "example.com") == default
+        proxy_mod._DEFAULT_EGRESS = "http://warp:8080"
+        assert resolve_proxy(None, "example.com") == "http://warp:8080"
+        assert resolve_proxy("direct", "example.com") is None
+        assert resolve_proxy("http://other.example:1", "example.com") == "http://other.example:1"
     finally:
-        proxy_mod._DEFAULT_PROXY = orig_default
-        proxy_mod._DEFAULT_PROXY_DOMAINS = orig_domains
+        proxy_mod._DEFAULT_EGRESS = orig
 
 
 # Cookie namespaces per egress identity
@@ -188,7 +184,8 @@ def _fake_pool(max_browsers: int) -> tuple[BrowserPool, list[str | None]]:
 
     async def fake_launch(key, proxy):
         launched.append(proxy)
-        return _Worker(key=key, proxy=proxy, browser=_FakeBrowser(), created_at=0.0, last_used=0.0)
+        return _Worker(key=key, proxy=proxy, browser=_FakeBrowser(), created_at=0.0, last_used=0.0,
+                       licensed=proxy is None)
 
     pool._launch_worker = fake_launch
     return pool, launched
@@ -202,45 +199,87 @@ def test_pool_reuses_worker_per_identity():
         w3 = await pool._acquire("http://a.example:1", _far())
         assert w1 is w2 and w1 is not w3
         assert launched == [None, "http://a.example:1"]
-        assert pool.stats() == {"browsers": 2, "max_browsers": 2, "active_tabs": 3, "max_tabs": 10, "queued": 0, "licensed_browsers": 2}
+        # One licensed seat (direct) + one keyless proxy worker
+        stats = pool.stats()
+        assert stats["browsers"] == 2 and stats["licensed_browsers"] == 1
+        assert stats["active_tabs"] == 3 and stats["queued"] == 0 and stats["proxy_queue_bytes"] == 0
 
     asyncio.run(run())
 
 
-def test_pool_evicts_idle_lru_when_full():
+def test_proxied_browsers_never_evict_the_direct_browser():
     async def run():
         pool, launched = _fake_pool(max_browsers=1)
         w_direct = await pool._acquire(None, _far())
         await pool._release(w_direct)
+        # A proxied request opens its own browser; the direct licensed one stays untouched
         w_proxy = await pool._acquire("http://a.example:1", _far())
-        assert w_direct.browser.closed and not w_proxy.browser.closed
+        assert not w_direct.browser.closed and not w_proxy.browser.closed
         assert launched == [None, "http://a.example:1"]
 
+        # A second proxy with all proxy slots busy recycles the idle proxied worker only
+        await pool._release(w_proxy)
+        w_other = await pool._acquire("http://b.example:2", _far())
+        await asyncio.gather(*pool._closing)  # retired processes close in the background, off the pool lock
+        assert w_proxy.browser.closed and not w_direct.browser.closed
+        assert launched == [None, "http://a.example:1", "http://b.example:2"]
+        await pool._release(w_other)
+
     asyncio.run(run())
 
 
-def test_pool_waits_for_busy_identity_and_does_not_starve():
+def test_proxied_solving_is_independent_of_the_direct_browser():
     async def run():
         pool, launched = _fake_pool(max_browsers=1)
         w_direct = await pool._acquire(None, _far())
 
+        # A proxied request must not wait for the busy direct browser: separate resources
         proxied = asyncio.create_task(pool._acquire("http://a.example:1", _far()))
         await asyncio.sleep(0.05)
-        assert not proxied.done()
+        assert proxied.done(), "proxied traffic must not queue behind the direct browser"
+        w_proxy = proxied.result()
+        assert w_proxy.proxy == "http://a.example:1" and not w_direct.browser.closed
 
-        # A new direct request must not join the busy process while the proxy waits for a slot
-        late_direct = asyncio.create_task(pool._acquire(None, _far()))
+        # The second proxy queues for the single proxied slot
+        queued = asyncio.create_task(pool._acquire("http://b.example:2", _far()))
         await asyncio.sleep(0.05)
-        assert not late_direct.done()
-
-        await pool._release(w_direct)
-        w_proxy = await asyncio.wait_for(proxied, 1)
-        assert w_proxy.proxy == "http://a.example:1" and w_direct.browser.closed
+        assert not queued.done()
 
         await pool._release(w_proxy)
-        w_direct2 = await asyncio.wait_for(late_direct, 1)
-        assert w_direct2.proxy is None
-        assert launched == [None, "http://a.example:1", None]
+        w_b = await asyncio.wait_for(queued, 1)
+        await asyncio.gather(*pool._closing)
+        assert w_b.proxy == "http://b.example:2" and w_proxy.browser.closed
+        await pool._release(w_b)
+        assert launched == [None, "http://a.example:1", "http://b.example:2"]
+
+    asyncio.run(run())
+
+
+def test_proxy_queue_caps_buffered_request_bodies():
+    async def run():
+        pool, launched = _fake_pool(max_browsers=1)
+        w = await pool._acquire("http://a.example:1", _far())
+
+        # An oversized queued body is rejected outright, nothing is buffered
+        from app.core.config import PROXY_QUEUE_BYTE_LIMIT
+        over = asyncio.create_task(pool._acquire("http://b.example:2", _far(), payload_bytes=PROXY_QUEUE_BYTE_LIMIT + 1))
+        await asyncio.sleep(0.05)
+        assert over.done()
+        try:
+            await over
+            raise AssertionError("queue cap must reject oversized queued bodies")
+        except BrowserPoolBusy as exc:
+            assert "Proxy queue full" in str(exc)
+        assert pool._proxy_queue_bytes == 0
+
+        # A small body queues (charged against the cap) and clears once it gets its slot
+        ok = asyncio.create_task(pool._acquire("http://c.example:3", _far(), payload_bytes=1000))
+        await asyncio.sleep(0.05)
+        assert not ok.done() and pool._proxy_queue_bytes == 1000
+        await pool._release(w)
+        got = await asyncio.wait_for(ok, 1)
+        assert got.proxy == "http://c.example:3" and pool._proxy_queue_bytes == 0
+        await pool._release(got)
 
     asyncio.run(run())
 
@@ -271,11 +310,60 @@ def run_all():
     test_cookie_cache_never_crosses_identities()
     test_session_keys_with_identity()
     test_pool_reuses_worker_per_identity()
-    test_pool_evicts_idle_lru_when_full()
-    test_pool_waits_for_busy_identity_and_does_not_starve()
+    test_proxied_browsers_never_evict_the_direct_browser()
+    test_proxied_solving_is_independent_of_the_direct_browser()
+    test_proxy_queue_caps_buffered_request_bodies()
     test_pool_replaces_disconnected_worker()
     print("[OK] All proxy & browser pool self-checks passed successfully.")
 
 
 if __name__ == "__main__":
     run_all()
+
+
+def test_slow_proxy_launch_never_blocks_other_identities():
+    """A dead proxy's launch (GeoIP lookups time out through it) must not freeze the direct browser or releases."""
+    async def run():
+        pool, launched = _fake_pool(max_browsers=1)
+        w_direct = await pool._acquire(None, _far())
+        await pool._release(w_direct)
+        gate = asyncio.Event()
+        fast_launch = pool._launch_worker
+
+        async def slow_launch(key, proxy):
+            if proxy:
+                await gate.wait()
+            return await fast_launch(key, proxy)
+
+        pool._launch_worker = slow_launch
+        proxied = asyncio.create_task(pool._acquire("http://dead.example:1", _far()))
+        await asyncio.sleep(0.05)
+        assert not proxied.done()
+
+        # While the proxy launch hangs, direct traffic acquires and releases instantly
+        w = await asyncio.wait_for(pool._acquire(None, _far()), 0.5)
+        await asyncio.wait_for(pool._release(w), 0.5)
+        # A second request for the launching identity waits for that launch instead of starting another
+        second = asyncio.create_task(pool._acquire("http://dead.example:1", _far()))
+        await asyncio.sleep(0.05)
+        gate.set()
+        a, b = await asyncio.wait_for(asyncio.gather(proxied, second), 1)
+        assert a is b and launched.count("http://dead.example:1") == 1
+        assert pool.stats()["active_tabs"] == 2 and pool._launching == {}
+
+    asyncio.run(run())
+
+
+def test_failed_launch_frees_its_reservation():
+    async def run():
+        pool, launched = _fake_pool(max_browsers=1)
+
+        async def boom(key, proxy):
+            raise RuntimeError("Proxy unreachable")
+
+        pool._launch_worker = boom
+        with pytest.raises(RuntimeError):
+            await pool._acquire("http://dead.example:1", _far())
+        assert pool._launching == {} and pool.stats()["active_tabs"] == 0
+
+    asyncio.run(run())

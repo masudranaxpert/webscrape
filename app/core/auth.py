@@ -28,7 +28,22 @@ async def verify_api_key(
 
     provided_key = header_key or (bearer_creds.credentials if bearer_creds else None)
 
-    if not provided_key or not secrets.compare_digest(provided_key.strip(), API_KEY.strip()):
+    if not provided_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key. API requests require a valid 'X-API-Key' header or Bearer token.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    try:
+        is_match = secrets.compare_digest(
+            provided_key.strip().encode("utf-8"),
+            API_KEY.strip().encode("utf-8"),
+        )
+    except Exception:
+        is_match = False
+
+    if not is_match:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key. API requests require a valid 'X-API-Key' header or Bearer token.",

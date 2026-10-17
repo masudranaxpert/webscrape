@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.v1.endpoints import cookies, fetch, health
+from app.api.v1.endpoints import cookies, fetch, health, solve
 from app.core.auth import verify_api_key
 
 api_router = APIRouter()
@@ -12,6 +12,11 @@ api_router = APIRouter()
 api_router.include_router(
     fetch.router,
     tags=["Scraping Pipeline"],
+    dependencies=[Depends(verify_api_key)],
+)
+api_router.include_router(
+    solve.router,
+    tags=["Turnstile Solver"],
     dependencies=[Depends(verify_api_key)],
 )
 api_router.include_router(

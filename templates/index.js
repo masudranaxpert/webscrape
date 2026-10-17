@@ -106,14 +106,14 @@ function updateApiKeyUI(key) {
       headerKeyBadge.style.color = 'var(--accent-green)';
       headerKeyDot.style.background = 'var(--accent-green)';
       headerKeyDot.style.boxShadow = '0 0 8px var(--accent-green)';
-      headerKeyText.textContent = 'API Key Configured';
+      headerKeyText.textContent = 'Key Active';
     } else {
       headerKeyBadge.style.background = 'rgba(234, 88, 12, 0.1)';
       headerKeyBadge.style.borderColor = 'rgba(234, 88, 12, 0.25)';
       headerKeyBadge.style.color = 'var(--accent-orange)';
       headerKeyDot.style.background = 'var(--accent-orange)';
       headerKeyDot.style.boxShadow = '0 0 8px var(--accent-orange)';
-      headerKeyText.textContent = 'API Key Required';
+      headerKeyText.textContent = 'Key Required';
     }
   }
 }
@@ -152,8 +152,8 @@ if (btnToggleKeyVisibility && globalApiKeyInput) {
     globalApiKeyInput.type = isPassword ? 'text' : 'password';
     if (eyeIcon) {
       eyeIcon.innerHTML = isPassword
-        ? '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>'
-        : '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+        ? '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>'
+        : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
     }
   });
 }
@@ -214,7 +214,6 @@ function checkActiveConfigState() {
   const proxy = document.getElementById('cfgProxy')?.value.trim() || '';
   const ua = document.getElementById('cfgUa')?.value.trim() || '';
   const body = document.getElementById('cfgBody')?.value.trim() || '';
-  const captureToken = document.getElementById('cfgCaptureToken')?.checked || false;
   const turnstileToken = document.getElementById('cfgTurnstileToken')?.value.trim() || '';
   const waitSel = document.getElementById('cfgWaitForSelector')?.value.trim() || '';
   const clickSel = document.getElementById('cfgClickSelector')?.value.trim() || '';
@@ -229,7 +228,6 @@ function checkActiveConfigState() {
     proxy !== '' ||
     ua !== '' ||
     body !== '' ||
-    captureToken ||
     turnstileToken !== '' ||
     waitSel !== '' ||
     clickSel !== '' ||
@@ -241,7 +239,7 @@ function checkActiveConfigState() {
   dot.style.display = isCustom ? 'inline-block' : 'none';
 }
 
-['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgProxy', 'cfgUa', 'cfgBody', 'cfgCaptureToken', 'cfgTurnstileToken', 'cfgWaitForSelector', 'cfgClickSelector'].forEach(id => {
+['cfgEngineMode', 'cfgPreset', 'cfgHttpVersion', 'cfgProxy', 'cfgUa', 'cfgBody', 'cfgWaitForSelector', 'cfgClickSelector'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
     el.addEventListener('input', checkActiveConfigState);
@@ -265,8 +263,9 @@ document.querySelectorAll('.config-tab-btn').forEach(btn => {
 // Response Tabs
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    const parentPanel = btn.closest('.response-panel') || document;
+    parentPanel.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    parentPanel.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     const target = document.getElementById(btn.getAttribute('data-tab'));
     if (target) {
@@ -420,7 +419,6 @@ document.querySelectorAll('.btn-preset').forEach(btn => {
       requestMethod.value = 'GET';
       requestMethod.className = 'method-select method-get';
       targetUrl.value = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-      document.getElementById('cfgCaptureToken').checked = true;
       document.getElementById('cfgWaitForSelector').value = 'body';
       document.querySelector('.config-tab-btn[data-cfg="cfgTurnstile"]').click();
     } else if (preset === 'post_json') {
@@ -555,12 +553,12 @@ const fetchForm = document.getElementById('fetchForm');
 const submitBtn = document.getElementById('submitBtn');
 const btnLabel = document.getElementById('btnLabel');
 const jsonOutput = document.getElementById('jsonOutput');
-const statusPill = document.getElementById('statusPill');
-const viaPill = document.getElementById('viaPill');
+const statusPill = document.getElementById('statusPill') || document.getElementById('respStatus');
+const viaPill = document.getElementById('viaPill') || document.getElementById('respEngine');
 const cachePill = document.getElementById('cachePill');
 const protocolPill = document.getElementById('protocolPill');
 const cookiesUsedPill = document.getElementById('cookiesUsedPill');
-const timePill = document.getElementById('timePill');
+const timePill = document.getElementById('timePill') || document.getElementById('respTiming');
 const logsList = document.getElementById('logsList');
 const logsCount = document.getElementById('logsCount');
 const browserStateList = document.getElementById('browserStateList');
@@ -578,14 +576,20 @@ fetchForm.addEventListener('submit', async (e) => {
 
   const apiKey = (globalApiKeyInput ? globalApiKeyInput.value.trim() : '') || getStoredApiKey();
   if (!apiKey) {
-    statusPill.className = 'metric-pill amber';
-    statusPill.textContent = 'API Key Required';
-    jsonOutput.innerHTML = `<span style="color:#f43f5e">// [401 Unauthorized]\nX-API-Key is strictly required.\nPlease enter your secret API key in the Authentication Vault above.</span>`;
+    if (statusPill) {
+      statusPill.className = 'metric-pill amber';
+      statusPill.textContent = 'API Key Required';
+    }
+    if (jsonOutput) {
+      jsonOutput.innerHTML = `<span style="color:#f43f5e">// [401 Unauthorized]\nX-API-Key is strictly required.\nPlease enter your secret API key in the Authentication Vault above.</span>`;
+    }
     if (logsList) {
       logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] Aborted: X-API-Key missing. Set your key in the Authentication Vault.</div>`;
     }
     const vault = document.getElementById('apiVaultCard');
     if (vault) {
+      vault.classList.add('vault-attention-shake');
+      setTimeout(() => vault.classList.remove('vault-attention-shake'), 700);
       vault.scrollIntoView({ behavior: 'smooth', block: 'center' });
       if (globalApiKeyInput) globalApiKeyInput.focus();
     }
@@ -593,25 +597,32 @@ fetchForm.addEventListener('submit', async (e) => {
   }
 
   // Save proxy if provided
-  const proxyVal = document.getElementById('cfgProxy').value.trim();
+  const proxyInput = document.getElementById('cfgProxy');
+  const proxyVal = proxyInput ? proxyInput.value.trim() : '';
   if (proxyVal) {
     try { localStorage.setItem('anti_playground_proxy', proxyVal); } catch (e) {}
   }
 
-  submitBtn.disabled = true;
-  btnLabel.textContent = 'Executing...';
+  if (submitBtn) submitBtn.disabled = true;
+  if (btnLabel) btnLabel.textContent = 'Executing...';
 
-  statusPill.className = 'metric-pill amber';
-  statusPill.textContent = 'Status: Routing...';
-  viaPill.className = 'metric-pill';
-  viaPill.textContent = 'Engine: --';
-  cachePill.className = 'metric-pill';
-  cachePill.textContent = 'Cache: --';
-  protocolPill.textContent = 'Proto: --';
-  cookiesUsedPill.textContent = 'Cookies: --';
-  timePill.textContent = 'Latency: -- ms';
+  if (statusPill) {
+    statusPill.className = 'metric-pill amber';
+    statusPill.textContent = 'Status: Routing...';
+  }
+  if (viaPill) {
+    viaPill.className = 'metric-pill';
+    viaPill.textContent = 'Engine: --';
+  }
+  if (cachePill) {
+    cachePill.className = 'metric-pill';
+    cachePill.textContent = 'Cache: --';
+  }
+  if (protocolPill) protocolPill.textContent = 'Proto: --';
+  if (cookiesUsedPill) cookiesUsedPill.textContent = 'Cookies: --';
+  if (timePill) timePill.textContent = 'Latency: -- ms';
 
-  jsonOutput.innerHTML = '// Dispatching request through stealth pipeline...';
+  if (jsonOutput) jsonOutput.innerHTML = '// Dispatching request through stealth pipeline...';
   if (logsList) logsList.innerHTML = '<div style="color:#fb923c">// Negotiating wire handshake...</div>';
   if (logsCount) logsCount.textContent = '...';
 
@@ -631,8 +642,6 @@ fetchForm.addEventListener('submit', async (e) => {
   const clickSelector = document.getElementById('cfgClickSelector').value.trim();
   const cfWait = parseFloat(document.getElementById('cfgCfWait').value) || 25.0;
   const pageLoadState = document.getElementById('cfgPageLoadState').value;
-  const captureToken = document.getElementById('cfgCaptureToken').checked;
-  const autoToken = document.getElementById('cfgAutoToken').checked;
 
   const selector = document.getElementById('cfgSelector').value.trim();
   const selectorAttr = document.getElementById('cfgSelectorAttr').value.trim() || 'text';
@@ -664,8 +673,6 @@ fetchForm.addEventListener('submit', async (e) => {
 
   if (waitForSelector) payload.wait_for_selector = waitForSelector;
   if (clickSelector) payload.click_selector = clickSelector;
-  if (captureToken) payload.capture_token = true;
-  if (autoToken) payload.auto_token = true;
 
   if (selector) {
     payload.selector = selector;
@@ -718,41 +725,72 @@ fetchForm.addEventListener('submit', async (e) => {
 
     // Handle 401 Unauthorized
     if (res.status === 401) {
-      statusPill.className = 'metric-pill amber';
-      statusPill.textContent = '401 Unauthorized';
-      timePill.textContent = `Latency: ${elapsed} ms`;
-      jsonOutput.innerHTML = syntaxHighlight(data);
-      if (logsList) logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] 401 Unauthorized: Invalid X-API-Key.</div>`;
+      if (statusPill) {
+        statusPill.className = 'metric-pill amber';
+        statusPill.textContent = 'Status: 401 Unauthorized';
+      }
+      if (viaPill) {
+        viaPill.className = 'metric-pill';
+        viaPill.textContent = 'Engine: REJECTED';
+      }
+      if (timePill) timePill.textContent = `Latency: ${elapsed} ms`;
+
+      const errorMsg = data && data.detail ? data.detail : 'Invalid X-API-Key provided.';
+      if (jsonOutput) {
+        jsonOutput.innerHTML = `<div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.3);border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#fca5a5;font-size:0.84rem;line-height:1.6;">
+  <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:#f43f5e;font-size:0.9rem;margin-bottom:4px;">
+    <svg class="svg-icon" viewBox="0 0 24 24" style="width:16px;height:16px;display:inline-block;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    Authentication Failed (401 Unauthorized)
+  </div>
+  <span>${escapeHtml(errorMsg)}. Please verify your secret API key in the <strong>Authentication Vault</strong> above.</span>
+</div>` + syntaxHighlight(data);
+      }
+      if (logsList) {
+        logsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] 401 Unauthorized: Invalid X-API-Key credentials. Request rejected by gateway.</div>`;
+      }
+      const vault = document.getElementById('apiVaultCard');
+      if (vault) {
+        vault.classList.add('vault-attention-shake');
+        setTimeout(() => vault.classList.remove('vault-attention-shake'), 700);
+      }
       return;
     }
 
     // Update Status Pill
     const code = data.status_code || res.status;
-    if (code >= 200 && code < 300) {
-      statusPill.className = 'metric-pill success';
-      statusPill.textContent = `Status: ${code} OK`;
-    } else if (code === 429) {
-      statusPill.className = 'metric-pill amber';
-      statusPill.textContent = `Status: 429 Rate Limited`;
-    } else {
-      statusPill.className = 'metric-pill amber';
-      statusPill.textContent = `Status: ${code}`;
+    if (statusPill) {
+      if (code >= 200 && code < 300) {
+        statusPill.className = 'metric-pill success';
+        statusPill.textContent = `Status: ${code} OK`;
+      } else if (code === 429) {
+        statusPill.className = 'metric-pill amber';
+        statusPill.textContent = `Status: 429 Rate Limited`;
+      } else {
+        statusPill.className = 'metric-pill amber';
+        statusPill.textContent = `Status: ${code}`;
+      }
     }
 
     // Engine & Metadata Pills
     const meta = data.meta || {};
     const via = meta.via || 'http';
-    viaPill.className = via === 'http' ? 'metric-pill info' : 'metric-pill purple';
-    viaPill.textContent = `Engine: ${via.toUpperCase()}`;
+    if (viaPill) {
+      viaPill.className = via === 'http' ? 'metric-pill info' : 'metric-pill purple';
+      viaPill.textContent = `Engine: ${via.toUpperCase()}`;
+    }
 
     const isHit = Boolean(meta.cache_hit);
-    cachePill.className = isHit ? 'metric-pill success' : 'metric-pill';
-    cachePill.textContent = `Cache: ${isHit ? 'HIT' : 'MISS'}`;
+    if (cachePill) {
+      cachePill.className = isHit ? 'metric-pill success' : 'metric-pill';
+      cachePill.textContent = `Cache: ${isHit ? 'HIT' : 'MISS'}`;
+    }
 
-    protocolPill.textContent = `Proto: ${data.protocol || 'h2'}`;
-    cookiesUsedPill.textContent = `Cookies: ${meta.cookies_used || 0}`;
-    timePill.className = 'metric-pill info';
-    timePill.textContent = `Latency: ${elapsed} ms`;
+    if (protocolPill) protocolPill.textContent = `Proto: ${data.protocol || 'h2'}`;
+    if (cookiesUsedPill) cookiesUsedPill.textContent = `Cookies: ${meta.cookies_used || 0}`;
+    if (timePill) {
+      timePill.className = 'metric-pill info';
+      timePill.textContent = `Latency: ${elapsed} ms`;
+    }
 
     // JSON View (with truncation safeguard for huge bodies)
     const jsonToDisplay = { ...data };
@@ -895,14 +933,16 @@ fetchForm.addEventListener('submit', async (e) => {
     checkHealth();
   } catch (err) {
     const elapsed = Math.round(performance.now() - t0);
-    statusPill.className = 'metric-pill amber';
-    statusPill.textContent = 'Status: Failed';
-    timePill.textContent = `Latency: ${elapsed} ms`;
-    jsonOutput.innerHTML = `<span style="color:#ef4444">Error executing request: ${escapeHtml(err.message)}</span>`;
+    if (statusPill) {
+      statusPill.className = 'metric-pill amber';
+      statusPill.textContent = 'Status: Failed';
+    }
+    if (timePill) timePill.textContent = `Latency: ${elapsed} ms`;
+    if (jsonOutput) jsonOutput.innerHTML = `<span style="color:#ef4444">Error executing request: ${escapeHtml(err.message)}</span>`;
     if (logsList) logsList.innerHTML = `<span style="color:#ef4444">[ERROR] Pipeline failed: ${escapeHtml(err.message)}</span>`;
   } finally {
-    submitBtn.disabled = false;
-    btnLabel.textContent = 'Send Request';
+    if (submitBtn) submitBtn.disabled = false;
+    if (btnLabel) btnLabel.textContent = 'Send Request';
   }
 });
 
@@ -949,11 +989,13 @@ async function loadCacheExplorer() {
       if (cacheGrid) {
         cacheGrid.innerHTML = `
           <div class="cache-loading-msg">
-            <div class="cache-empty-icon" style="color:var(--accent-orange);">
-              <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <div class="cache-lock-badge" id="cacheLockBadge">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
             </div>
-            <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">API Key Required to Inspect Domain Cache</div>
-            <p style="font-size:0.84rem;color:var(--text-secondary);max-width:440px;margin:0 auto 14px;">Enter your secret X-API-Key in the Authentication Vault above to inspect active Cloudflare clearance jars.</p>
+            <div style="font-weight:700;color:var(--text-primary);margin-top:10px;">API Key Required to Inspect Domain Cache</div>
           </div>
         `;
       }
@@ -968,8 +1010,14 @@ async function loadCacheExplorer() {
       if (cacheGrid) {
         cacheGrid.innerHTML = `
           <div class="cache-loading-msg">
-            <div style="color:var(--accent-rose);font-weight:700;margin-bottom:6px;">401 Unauthorized</div>
-            <p style="font-size:0.84rem;color:var(--text-secondary);">The provided API key is invalid. Please verify your X-API-Key.</p>
+            <div class="cache-lock-badge is-error">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </div>
+            <div style="color:var(--accent-rose);font-weight:700;margin-top:10px;font-size:1.05rem;">401 Unauthorized</div>
+            <p style="font-size:0.84rem;color:var(--text-secondary);margin-top:4px;">The provided API key is invalid. Please verify your X-API-Key.</p>
           </div>
         `;
       }
@@ -991,7 +1039,7 @@ async function loadCacheExplorer() {
     renderDomainCards();
   } catch (err) {
     if (cacheGrid) {
-      cacheGrid.innerHTML = `<div class="cache-loading-msg"><p style="color:#ef4444;">Error connecting to cache service: ${err.message}</p></div>`;
+      cacheGrid.innerHTML = `<div class="cache-loading-msg"><p style="color:#ef4444;">Error connecting to cache service: ${escapeHtml(err.message)}</p></div>`;
     }
   } finally {
     if (refreshCacheIcon) refreshCacheIcon.style.animation = '';
@@ -1170,7 +1218,7 @@ async function checkHealth() {
     const res = await fetch('/health');
     const data = await res.json();
     if (data.status === 'ok') {
-      if (statusText) statusText.textContent = `Online (${data.domains_cached} cached)`;
+      if (statusText) statusText.textContent = 'Online';
       if (liveStatusBadge) liveStatusBadge.style.color = 'var(--accent-green)';
     }
   } catch (err) {
@@ -1196,3 +1244,347 @@ window.addEventListener('DOMContentLoaded', () => {
     if (pgSec) pgSec.scrollIntoView({ behavior: 'smooth' });
   }
 });
+
+// ================= Studio Mode Tabs Switcher (Scraping vs Turnstile) =================
+document.querySelectorAll('.studio-mode-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.studio-mode-tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    const mode = tab.getAttribute('data-mode');
+    const fetchPane = document.getElementById('paneModeFetch');
+    const turnstilePane = document.getElementById('paneModeTurnstile');
+    if (mode === 'fetch') {
+      if (fetchPane) fetchPane.style.display = 'block';
+      if (turnstilePane) turnstilePane.style.display = 'none';
+    } else {
+      if (fetchPane) fetchPane.style.display = 'none';
+      if (turnstilePane) turnstilePane.style.display = 'block';
+    }
+  });
+});
+
+// ================= Feature Guides: Usage Examples Sub-navigation =================
+document.querySelectorAll('.examples-subnav .btn-sub-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.examples-subnav .btn-sub-toggle').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const lang = btn.getAttribute('data-lang');
+    const map = { py: 'exPython', curl: 'exCurl', node: 'exNode', solve: 'exSolve' };
+    document.querySelectorAll('.example-lang-pane').forEach(p => p.style.display = 'none');
+    const target = document.getElementById(map[lang]);
+    if (target) target.style.display = 'block';
+  });
+});
+
+// ================= Dedicated Turnstile Solver Logic =================
+const tsForm = document.getElementById('turnstileSolveForm');
+if (tsForm) {
+  // Test Presets
+  document.querySelectorAll('.btn-preset-solver').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sitekey = btn.getAttribute('data-sitekey');
+      const siteurl = btn.getAttribute('data-siteurl');
+      if (sitekey) document.getElementById('tsSitekey').value = sitekey;
+      if (siteurl) document.getElementById('tsSiteurl').value = siteurl;
+    });
+  });
+
+  // Action Buttons
+  document.getElementById('btnPasteSitekey')?.addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) document.getElementById('tsSitekey').value = text.trim();
+    } catch (e) {
+      document.getElementById('tsSitekey').focus();
+    }
+  });
+
+  document.getElementById('btnClearSiteurl')?.addEventListener('click', () => {
+    document.getElementById('tsSiteurl').value = '';
+    document.getElementById('tsSiteurl').focus();
+  });
+
+  document.getElementById('btnPasteSavedProxyTs')?.addEventListener('click', () => {
+    const saved = localStorage.getItem('anti_user_proxy');
+    if (saved) {
+      document.getElementById('tsProxy').value = saved;
+    } else {
+      alert('No saved proxy found. Enter a proxy in the Scraping Options tab to save one.');
+    }
+  });
+
+  const solverStatusPill = document.getElementById('solverStatusPill');
+  const solverEnginePill = document.getElementById('solverEnginePill');
+  const solverSitekeyPill = document.getElementById('solverSitekeyPill');
+  const solverProxyPill = document.getElementById('solverProxyPill');
+  const solverTimePill = document.getElementById('solverTimePill');
+  const turnstileTokenOutput = document.getElementById('turnstileTokenOutput');
+  const tokenLenBadge = document.getElementById('tokenLenBadge');
+  const solverRawJson = document.getElementById('solverRawJson');
+  const tsSubmissionsList = document.getElementById('tsSubmissionsList');
+  const tsSubmissionsCount = document.getElementById('tsSubmissionsCount');
+  const tsLogsList = document.getElementById('tsLogsList');
+  let currentSolverData = null;
+
+  document.getElementById('btnResetSolver')?.addEventListener('click', () => {
+    tsForm.reset();
+    currentSolverData = null;
+    if (solverStatusPill) {
+      solverStatusPill.className = 'metric-pill';
+      solverStatusPill.textContent = 'Status: Idle';
+    }
+    if (solverEnginePill) solverEnginePill.textContent = 'Engine: BROWSER';
+    if (solverSitekeyPill) solverSitekeyPill.textContent = 'Sitekey: --';
+    if (solverProxyPill) solverProxyPill.textContent = 'Proxy: Direct';
+    if (solverTimePill) {
+      solverTimePill.className = 'metric-pill';
+      solverTimePill.textContent = 'Latency: -- s';
+    }
+    if (tokenLenBadge) tokenLenBadge.textContent = '0 chars';
+    if (turnstileTokenOutput) turnstileTokenOutput.innerHTML = '// Configure sitekey and target URL above and click "Turnstile Token"...';
+    if (solverRawJson) solverRawJson.textContent = '// Awaiting solver execution...';
+    if (tsSubmissionsList) tsSubmissionsList.innerHTML = 'No postback form submissions captured yet.';
+    if (tsSubmissionsCount) tsSubmissionsCount.textContent = '0';
+    if (tsLogsList) tsLogsList.innerHTML = '// Headless browser challenge solver logs stream here...';
+  });
+
+  // 1-Click Copy Token
+  document.getElementById('btnCopyTurnstileToken')?.addEventListener('click', () => {
+    const tokenVal = turnstileTokenOutput?.textContent?.trim();
+    if (!tokenVal || tokenVal.startsWith('//')) return;
+    navigator.clipboard.writeText(tokenVal).then(() => {
+      const btnText = document.getElementById('btnCopyTokenText');
+      if (btnText) {
+        const orig = btnText.textContent;
+        btnText.textContent = 'Copied!';
+        setTimeout(() => { btnText.textContent = orig; }, 1800);
+      }
+    });
+  });
+
+  // 1-Click Copy Solver JSON
+  document.getElementById('btnCopySolverJson')?.addEventListener('click', () => {
+    if (!currentSolverData) return;
+    navigator.clipboard.writeText(JSON.stringify(currentSolverData, null, 2)).then(() => {
+      const span = document.getElementById('btnCopySolverJson')?.querySelector('span');
+      if (span) {
+        const orig = span.textContent;
+        span.textContent = 'Copied!';
+        setTimeout(() => { span.textContent = orig; }, 1800);
+      }
+    });
+  });
+
+  // 1-Click Copy Integration Snippet
+  document.getElementById('btnCopyIntegrationSnippet')?.addEventListener('click', () => {
+    const snippet = document.getElementById('tokenCurlSnippet')?.textContent;
+    if (!snippet) return;
+    navigator.clipboard.writeText(snippet).then(() => {
+      const span = document.getElementById('btnCopyIntegrationSnippet')?.querySelector('span');
+      if (span) {
+        const orig = span.textContent;
+        span.textContent = 'Copied!';
+        setTimeout(() => { span.textContent = orig; }, 1800);
+      }
+    });
+  });
+
+  // Solver Form Submission
+  tsForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sitekey = document.getElementById('tsSitekey').value.trim();
+    const siteurl = document.getElementById('tsSiteurl').value.trim();
+    const proxy = document.getElementById('tsProxy').value.trim();
+    const timeout = parseInt(document.getElementById('tsTimeout').value, 10) || 30;
+
+    const apiKey = (globalApiKeyInput ? globalApiKeyInput.value.trim() : '') || getStoredApiKey();
+    if (!apiKey) {
+      if (solverStatusPill) {
+        solverStatusPill.className = 'metric-pill amber';
+        solverStatusPill.textContent = 'API Key Required';
+      }
+      if (turnstileTokenOutput) {
+        turnstileTokenOutput.innerHTML = `<span style="color:#f43f5e">// [401 Unauthorized]\nX-API-Key is strictly required.\nPlease enter your secret API key in the Authentication Vault above.</span>`;
+      }
+      if (tsLogsList) {
+        tsLogsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] Aborted: X-API-Key missing. Set your key in the Authentication Vault above.</div>`;
+      }
+      const vault = document.getElementById('apiVaultCard');
+      if (vault) {
+        vault.classList.add('vault-attention-shake');
+        setTimeout(() => vault.classList.remove('vault-attention-shake'), 700);
+        vault.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (globalApiKeyInput) globalApiKeyInput.focus();
+      }
+      return;
+    }
+
+    const submitBtn = document.getElementById('btnSubmitSolve');
+    const submitLabel = document.getElementById('solverBtnLabel');
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (submitLabel) submitLabel.textContent = 'Solving Token...';
+
+    if (solverStatusPill) {
+      solverStatusPill.className = 'metric-pill amber';
+      solverStatusPill.textContent = 'Status: Solving...';
+    }
+    if (solverEnginePill) solverEnginePill.textContent = 'Engine: BROWSER';
+    if (solverSitekeyPill) solverSitekeyPill.textContent = 'Sitekey: ' + (sitekey.length > 14 ? sitekey.substring(0, 10) + '...' : sitekey);
+    if (solverProxyPill) solverProxyPill.textContent = 'Proxy: ' + (proxy ? proxy.replace(/:[^:@]+@/, ':***@') : 'Direct');
+    if (solverTimePill) {
+      solverTimePill.className = 'metric-pill';
+      solverTimePill.textContent = 'Latency: 0.0s';
+    }
+
+    if (turnstileTokenOutput) {
+      turnstileTokenOutput.innerHTML = '<span style="color:#fb923c">// Negotiating Turnstile challenge in headless Chromium pool...</span>';
+    }
+    if (solverRawJson) solverRawJson.textContent = '// Dispatching request to /solve-turnstile...';
+    if (tsLogsList) tsLogsList.innerHTML = '<div style="color:#fb923c">// Allocating browser tab & navigating to challenge target...</div>';
+
+    const t0 = performance.now();
+    const timerInterval = setInterval(() => {
+      const curElapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      if (solverTimePill) solverTimePill.textContent = `Latency: ${curElapsed}s`;
+    }, 100);
+
+    const payload = { sitekey, siteurl, timeout };
+    if (proxy) payload.proxy = proxy;
+
+    try {
+      const res = await fetch('/solve-turnstile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      clearInterval(timerInterval);
+      const totalElapsed = ((performance.now() - t0) / 1000).toFixed(2);
+      if (solverTimePill) {
+        solverTimePill.className = 'metric-pill info';
+        solverTimePill.textContent = `Latency: ${totalElapsed}s`;
+      }
+
+      const rawText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (err) {
+        data = { error: 'Invalid response from server', raw: rawText };
+      }
+      currentSolverData = data;
+
+      if (solverRawJson) {
+        solverRawJson.innerHTML = syntaxHighlight(data);
+      }
+
+      // Handle 401 Unauthorized
+      if (res.status === 401) {
+        if (solverStatusPill) {
+          solverStatusPill.className = 'metric-pill amber';
+          solverStatusPill.textContent = 'Status: 401 Unauthorized';
+        }
+        if (solverEnginePill) solverEnginePill.textContent = 'Engine: REJECTED';
+        const errorMsg = data && data.detail ? data.detail : 'Invalid X-API-Key provided.';
+        if (turnstileTokenOutput) {
+          turnstileTokenOutput.innerHTML = `<span style="color:#f43f5e">// [401 Unauthorized] ${escapeHtml(errorMsg)}\nPlease check your secret key in the Authentication Vault above.</span>`;
+        }
+        if (tsLogsList) {
+          tsLogsList.innerHTML = `<div style="color:#f43f5e;font-weight:700">[AUTH] 401 Unauthorized: Invalid X-API-Key credentials. Request rejected by gateway.</div>`;
+        }
+        const vault = document.getElementById('apiVaultCard');
+        if (vault) {
+          vault.classList.add('vault-attention-shake');
+          setTimeout(() => vault.classList.remove('vault-attention-shake'), 700);
+        }
+        return;
+      }
+
+      if (res.ok && data.solved && data.token) {
+        if (solverStatusPill) {
+          solverStatusPill.className = 'metric-pill success';
+          solverStatusPill.textContent = 'Status: 200 Solved';
+        }
+        if (tokenLenBadge) tokenLenBadge.textContent = `${data.token.length} chars`;
+        if (turnstileTokenOutput) {
+          turnstileTokenOutput.textContent = data.token;
+        }
+
+        // Generate cURL & Python snippet
+        const curlSnippet = `# 1. Direct cURL submission:\ncurl -X POST "${siteurl}" \\\n  -H "Content-Type: application/x-www-form-urlencoded" \\\n  --data-urlencode "cf-turnstile-response=${data.token}"\n\n# 2. Python requests snippet:\nimport requests\nres = requests.post("${siteurl}", data={"cf-turnstile-response": "${data.token}"})\nprint(res.status_code, res.text[:200])`;
+        const snippetEl = document.getElementById('tokenCurlSnippet');
+        if (snippetEl) snippetEl.textContent = curlSnippet;
+
+        // Submissions
+        if (data.token_submissions && data.token_submissions.length > 0) {
+          if (tsSubmissionsCount) tsSubmissionsCount.textContent = data.token_submissions.length;
+          let subHtml = '<div style="display:flex;flex-direction:column;gap:10px;">';
+          data.token_submissions.forEach((sub, idx) => {
+            subHtml += `
+              <div style="background:#202024;border:1px solid #2e2e34;border-radius:6px;padding:12px 14px;font-size:0.84rem;">
+                <div style="color:#38bdf8;font-weight:600;margin-bottom:6px;">#${idx + 1} — ${escapeHtml(sub.method || 'POST')} ${escapeHtml(sub.url)} (${escapeHtml(sub.response_status || '200')})</div>
+                <pre style="margin:0;color:#a1a1aa;font-size:0.78rem;background:transparent;padding:0;"><code>${escapeHtml(sub.response_body || '')}</code></pre>
+              </div>`;
+          });
+          subHtml += '</div>';
+          if (tsSubmissionsList) tsSubmissionsList.innerHTML = subHtml;
+        } else {
+          if (tsSubmissionsCount) tsSubmissionsCount.textContent = '0';
+          if (tsSubmissionsList) tsSubmissionsList.innerHTML = '<div style="color:var(--text-muted);font-family:var(--font-mono);font-size:0.84rem;">No automatic postback form submission was captured. You can pass the solved token manually via the Integration Code tab.</div>';
+        }
+
+        if (tsLogsList) {
+          tsLogsList.innerHTML = `<div style="color:#4ade80;font-weight:700">[TURNSTILE] Solved successfully in ${totalElapsed}s.</div>
+<div style="color:#e4e4e7;margin-top:4px;">Sitekey: ${escapeHtml(sitekey)}</div>
+<div style="color:#e4e4e7;">Token length: ${data.token.length} chars</div>
+<div style="color:#38bdf8;margin-top:4px;">Solved At: ${data.turnstile_solved_at ? new Date(data.turnstile_solved_at * 1000).toLocaleTimeString() : new Date().toLocaleTimeString()}</div>`;
+        }
+      } else {
+        if (solverStatusPill) {
+          solverStatusPill.className = 'metric-pill amber';
+          solverStatusPill.textContent = `Status: ${res.status || 'Failed'}`;
+        }
+        const detailMsg = typeof data.detail === 'string' ? data.detail : (data.detail ? JSON.stringify(data.detail) : (data.error || 'Turnstile challenge could not be verified.'));
+        if (turnstileTokenOutput) {
+          turnstileTokenOutput.innerHTML = `<span style="color:#ef4444">// Solving Failed: ${escapeHtml(detailMsg)}</span>`;
+        }
+        if (tsLogsList) {
+          tsLogsList.innerHTML = `<div style="color:#ef4444;font-weight:700">[ERROR] HTTP ${res.status}: ${escapeHtml(detailMsg)}</div>`;
+        }
+      }
+    } catch (netErr) {
+      clearInterval(timerInterval);
+      if (solverStatusPill) {
+        solverStatusPill.className = 'metric-pill amber';
+        solverStatusPill.textContent = 'Status: Failed';
+      }
+      if (turnstileTokenOutput) {
+        turnstileTokenOutput.innerHTML = `<span style="color:#ef4444">// Network or Gateway Error: ${escapeHtml(netErr.message)}</span>`;
+      }
+      if (tsLogsList) {
+        tsLogsList.innerHTML = `<div style="color:#ef4444;font-weight:700">[ERROR] Request Failed: ${escapeHtml(netErr.message)}</div>`;
+      }
+      if (solverRawJson) solverRawJson.textContent = JSON.stringify({ error: netErr.message }, null, 2);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      if (submitLabel) submitLabel.textContent = 'Turnstile Token';
+    }
+  });
+}
+window.toggleEndpointCard = function (bodyId, headerEl) {
+  const body = document.getElementById(bodyId);
+  const btn = headerEl.querySelector('.btn-endpoint-toggle');
+  const label = headerEl.querySelector('.endpoint-toggle-label');
+  if (!body) return;
+  const isCollapsed = body.classList.toggle('is-collapsed');
+  if (btn) btn.classList.toggle('is-collapsed', isCollapsed);
+  if (label) label.textContent = isCollapsed ? 'Show' : 'Hide';
+};

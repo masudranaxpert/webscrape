@@ -1,0 +1,566 @@
+    <!-- Full-Featured Stealth Request Studio -->
+    <section class="section-box" id="playground">
+      <div class="section-header studio-master-header">
+        <div class="section-title-wrap">
+          <h2 class="section-title">
+            <svg class="svg-icon" style="color:var(--accent-orange)" viewBox="0 0 24 24">
+              <polygon points="6 2 18 2 18 6 6 6 6 2" />
+              <rect x="3" y="6" width="18" height="16" rx="2" />
+              <line x1="10" y1="12" x2="14" y2="12" />
+            </svg>
+            Stealth Request Studio
+          </h2>
+        </div>
+
+        <!-- Studio Master Mode Switcher Tabs -->
+        <div class="studio-mode-tabs" role="tablist" aria-label="Studio Modes">
+          <button type="button" class="studio-mode-tab active" id="tabModeFetch" role="tab" aria-selected="true" data-mode="fetch">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            <span>Scraping &amp; Request Studio</span>
+            <span class="studio-tab-pill">HTTP / Browser</span>
+          </button>
+          <button type="button" class="studio-mode-tab" id="tabModeTurnstile" role="tab" aria-selected="false" data-mode="turnstile">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span>Turnstile Token Solver</span>
+            <span class="studio-tab-pill studio-pill-accent">0x Sitekey</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ================= MODE 1: SCRAPING & FETCH STUDIO ================= -->
+      <div class="studio-mode-pane active" id="paneModeFetch">
+        <div class="studio-sub-bar">
+          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:600;">Presets:</span>
+          <div class="studio-presets">
+            <button type="button" class="btn-preset" data-preset="httpbin">HTTPBin GET</button>
+            <button type="button" class="btn-preset" data-preset="redirects">Redirect Chain</button>
+            <button type="button" class="btn-preset" data-preset="post_json">POST JSON Body</button>
+          </div>
+        </div>
+
+        <form id="fetchForm" class="studio-form">
+          <!-- Main Command Bar -->
+          <div class="studio-command-bar">
+            <div class="method-selector-wrap">
+              <select id="requestMethod" class="method-select method-get">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+                <option value="PATCH">PATCH</option>
+                <option value="HEAD">HEAD</option>
+              </select>
+            </div>
+            <div class="url-input-wrap">
+              <svg class="svg-icon input-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              <input type="url" id="targetUrl" class="input-url" placeholder="https://example.com/protected-page" value="https://httpbin.org/get" required />
+              <button type="button" class="btn-input-clear" id="btnClearUrl" title="Clear URL">&times;</button>
+            </div>
+            <button type="button" class="btn-toggle-config" id="btnToggleConfig" aria-expanded="false" aria-controls="studioConfigCard" title="Toggle Request Options (Engine, Proxy, Headers, Body, Automation)">
+              <svg class="svg-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              <span class="btn-toggle-label">Options</span>
+              <span class="active-config-dot" id="activeConfigDot" style="display:none" title="Custom configuration active"></span>
+              <svg class="svg-icon chevron-icon" id="configChevron" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <button type="submit" id="submitBtn" class="btn-send">
+              <svg class="svg-icon btn-send-icon" id="btnIcon" viewBox="0 0 24 24">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <span id="btnLabel">Send Request</span>
+              <kbd class="kbd-shortcut">↵</kbd>
+            </button>
+          </div>
+
+          <!-- Studio Configuration Drawer -->
+          <div class="studio-config-card" id="studioConfigCard">
+            <div class="config-tabs-nav">
+              <div class="config-tabs-scroll">
+                <button type="button" class="config-tab-btn active" data-cfg="cfgEngine">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  Engine &amp; Network
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgHeaders">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  Headers &amp; Body
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgTurnstile">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Browser Automation
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgExtract">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  DOM Extraction
+                </button>
+                <button type="button" class="config-tab-btn" data-cfg="cfgCookies">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                  Session &amp; Cookies
+                </button>
+              </div>
+              <button type="button" class="btn-close-config" id="btnCloseConfig" title="Hide Options">
+                <span>Done</span>
+                <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+            </div>
+
+            <div class="config-tabs-content">
+              <!-- Tab 1: Engine & Network -->
+              <div class="config-pane active" id="cfgEngine">
+                <div class="cfg-grid-3">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Engine Routing Mode</label>
+                    <select id="cfgEngineMode" class="cfg-select">
+                      <option value="auto" selected>Auto (HTTP + Browser escalation)</option>
+                      <option value="browser">Force Browser (Full automation)</option>
+                      <option value="http">Force HTTP (Fast-path only)</option>
+                    </select>
+                    <span class="cfg-hint">Checks cookie cache first; escalates to browser only on challenge walls.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Fingerprint Preset</label>
+                    <select id="cfgPreset" class="cfg-select">
+                      <option value="chrome-latest-windows" selected>Chrome (Windows) — Recommended</option>
+                      <option value="chrome-latest-linux">Chrome (Linux)</option>
+                      <option value="firefox-latest">Firefox (Modern)</option>
+                    </select>
+                    <span class="cfg-hint">Sets matching TLS cipher suites, ALPN, and pseudo-header sequence.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">HTTP Protocol Version</label>
+                    <select id="cfgHttpVersion" class="cfg-select">
+                      <option value="" selected>Auto / Negotiated (Default)</option>
+                      <option value="h2">HTTP/2 (h2)</option>
+                      <option value="h1">HTTP/1.1 (h1)</option>
+                      <option value="h3">HTTP/3 (h3)</option>
+                    </select>
+                    <span class="cfg-hint">Forces specific HTTP wire protocol negotiation.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-3" style="margin-top:16px;">
+                  <div class="cfg-field" style="grid-column:span 2;">
+                    <label class="cfg-label">Egress Proxy URL</label>
+                    <div class="input-with-action">
+                      <input type="text" id="cfgProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for direct/WARP)" />
+                      <button type="button" class="btn-cfg-action btn-paste-action btn-icon-only" id="btnTestUserProxy" title="Insert Saved User Proxy" aria-label="Insert user proxy">
+                        <svg class="svg-icon" viewBox="0 0 24 24">
+                          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                          <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <span class="cfg-hint">Supports HTTP, HTTPS, and SOCKS5 (with auth). Pass <code>direct</code> to bypass server egress.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Timeout (Seconds)</label>
+                    <input type="number" id="cfgTimeout" class="cfg-input" value="30" min="5" max="180" />
+                    <span class="cfg-hint">Max request execution timeout window.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-1" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Custom User-Agent Override (Optional)</label>
+                    <input type="text" id="cfgUserAgent" class="cfg-input" placeholder="Leave blank to use preset's authentic browser User-Agent" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 2: Headers & Body -->
+              <div class="config-pane" id="cfgHeaders">
+                <div class="cfg-split-view">
+                  <div class="cfg-col">
+                    <div class="cfg-col-header">
+                      <label class="cfg-label" style="margin:0;">Custom Outbound Headers</label>
+                      <button type="button" class="btn-add-kv" id="btnAddHeaderRow">+ Add Header</button>
+                    </div>
+                    <div id="headersKvContainer" class="kv-container">
+                      <!-- Dynamic Key-Value Rows -->
+                    </div>
+                    <span class="cfg-hint">Custom headers are merged into the preset browser's natural pseudo-header sequence.</span>
+                  </div>
+                  <div class="cfg-col">
+                    <div class="cfg-col-header">
+                      <label class="cfg-label" style="margin:0;">Request Body Payload (POST / PUT / PATCH)</label>
+                      <div class="cfg-payload-actions">
+                        <button type="button" class="btn-mini-payload" id="btnPayloadJson">JSON</button>
+                        <button type="button" class="btn-mini-payload" id="btnPayloadForm">Form-URL</button>
+                        <button type="button" class="btn-mini-payload" id="btnPayloadClear">Clear</button>
+                      </div>
+                    </div>
+                    <textarea id="cfgBody" class="cfg-textarea" rows="5" placeholder='{"key": "value"}'></textarea>
+                    <span class="cfg-hint">Auto-sets matching <code>Content-Type</code> if not explicitly provided above.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 3: Browser Automation -->
+              <div class="config-pane" id="cfgTurnstile">
+                <div class="cfg-grid-2">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Wait For CSS Selector (<code>wait_for_selector</code>)</label>
+                    <input type="text" id="cfgWaitForSelector" class="cfg-input" placeholder="e.g. .download-btn, #results-table" />
+                    <span class="cfg-hint">DOM element that must appear before returning. Forces browser if fast-path lacks it.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Click CSS Selector (<code>click_selector</code>)</label>
+                    <input type="text" id="cfgClickSelector" class="cfg-input" placeholder="e.g. button#continue, .submit-btn" />
+                    <span class="cfg-hint">Waits for element to be enabled, clicks, and captures redirects/downloads.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-2" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Challenge Settlement Timeout (<code>cf_wait</code>)</label>
+                    <input type="number" id="cfgCfWait" class="cfg-input" value="25.0" step="0.5" min="5" max="60" />
+                    <span class="cfg-hint">Max seconds for Cloudflare Turnstile to solve before timeout.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Page Load Strategy</label>
+                    <select id="cfgPageLoadState" class="cfg-select">
+                      <option value="complete" selected>Complete (Full load + network settlement)</option>
+                      <option value="interactive">Interactive (DOMContentLoaded)</option>
+                    </select>
+                    <span class="cfg-hint">Controls browser navigation readiness trigger.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 4: DOM Extraction -->
+              <div class="config-pane" id="cfgExtract">
+                <div class="cfg-grid-3">
+                  <div class="cfg-field" style="grid-column:span 2;">
+                    <label class="cfg-label">Target CSS Selector (<code>selector</code>)</label>
+                    <input type="text" id="cfgSelector" class="cfg-input" placeholder="e.g. a.download-link, h1.title, .movie-item" />
+                    <span class="cfg-hint">Runs Selectolax C-parser engine directly over the resolved HTML.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Attribute to Extract (<code>selector_attr</code>)</label>
+                    <input type="text" id="cfgSelectorAttr" class="cfg-input" value="text" placeholder="text, html, href, src, data-id..." />
+                    <span class="cfg-hint">Use <code>text</code> for inner text, <code>html</code> for outer HTML, or any HTML attribute.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-2" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Result Matching Mode</label>
+                    <select id="cfgSelectorAll" class="cfg-select">
+                      <option value="false" selected>First Match Only (Single string item)</option>
+                      <option value="true">All Matching Elements (Array of strings)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 5: Session & Cookies -->
+              <div class="config-pane" id="cfgCookies">
+                <div class="cfg-grid-3">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Isolated Session ID (<code>session_id</code>)</label>
+                    <input type="text" id="cfgSessionId" class="cfg-input" placeholder="e.g. task-42, user-alice" />
+                    <span class="cfg-hint">Sandboxes cookies into an isolated ephemeral cache; prevents cross-talk.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Cookie Cache TTL (Seconds)</label>
+                    <input type="number" id="cfgCookieTtl" class="cfg-input" value="86400" min="60" max="604800" />
+                    <span class="cfg-hint">How long cookies remain cached for this root domain.</span>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label">Cookie Header Limit</label>
+                    <input type="number" id="cfgCookieLimit" class="cfg-input" value="35" min="5" max="100" />
+                    <span class="cfg-hint">Caps outbound cookies to prevent HTTP 400 header overflow.</span>
+                  </div>
+                </div>
+                <div class="cfg-grid-1" style="margin-top:16px;">
+                  <div class="cfg-field">
+                    <div class="cfg-col-header">
+                      <label class="cfg-label" style="margin:0;">Custom Session Cookies Injection (<code>inject_cookies</code>)</label>
+                      <button type="button" class="btn-add-kv" id="btnAddCookieRow">+ Add Cookie</button>
+                    </div>
+                    <div id="cookiesKvContainer" class="kv-container">
+                      <!-- Dynamic Key-Value Rows -->
+                    </div>
+                    <span class="cfg-hint">Injected cookies bypass allowlist filters and take highest precedence.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        <!-- Response Panel -->
+        <div class="response-panel" id="responsePanel">
+          <div class="response-metrics">
+            <div class="metric-pill" id="statusPill">Status: Idle</div>
+            <div class="metric-pill" id="viaPill">Engine: --</div>
+            <div class="metric-pill" id="cachePill">Cache: --</div>
+            <div class="metric-pill" id="protocolPill">Proto: --</div>
+            <div class="metric-pill" id="cookiesUsedPill">Cookies: 0</div>
+            <div class="metric-pill" id="timePill">Latency: -- ms</div>
+            <div class="response-quick-actions">
+              <button type="button" class="btn-quick-action" id="btnCopyJson" title="Copy JSON Response">
+                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Copy JSON</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="tab-nav">
+            <button type="button" class="tab-btn active" data-tab="jsonTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              JSON Output
+            </button>
+            <button type="button" class="tab-btn" data-tab="htmlTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              HTML Preview
+            </button>
+            <button type="button" class="tab-btn" data-tab="extractedTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Extracted (<span id="extractedCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="browserStateTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+              Cookies (<span id="cookieCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="headersTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              Headers
+            </button>
+            <button type="button" class="tab-btn" data-tab="logsTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Pipeline Logs (<span id="logsCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="turnstileTab" id="tabBtnTurnstile" style="display:none;">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Turnstile Token
+            </button>
+          </div>
+
+          <div class="tab-content">
+            <!-- JSON View -->
+            <div class="tab-pane active" id="jsonTab">
+              <pre><code id="jsonOutput">// Configure request parameters above and click "Send Request"...</code></pre>
+            </div>
+
+            <!-- HTML Preview (Code + Sandboxed Iframe) -->
+            <div class="tab-pane" id="htmlTab">
+              <div class="html-preview-controls">
+                <div class="preview-mode-switch">
+                  <button type="button" class="btn-preview-mode active" id="btnPreviewCode">Code Syntax</button>
+                  <button type="button" class="btn-preview-mode" id="btnPreviewFrame">Rendered View (Sandbox)</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:0.78rem;color:var(--text-muted);" id="htmlSizeNotice">0 bytes</span>
+                  <button type="button" class="btn-quick-action" id="btnCopyHtml" title="Copy HTML Preview">
+                    <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <span>Copy HTML</span>
+                  </button>
+                </div>
+              </div>
+              <div id="htmlCodeContainer">
+                <pre><code id="htmlOutput">&lt;!-- Response body preview renders here --&gt;</code></pre>
+              </div>
+              <div id="htmlFrameContainer" style="display:none;">
+                <iframe id="previewIframe" class="preview-iframe" sandbox="allow-same-origin allow-scripts" title="Preview Frame"></iframe>
+              </div>
+            </div>
+
+            <!-- Extracted View -->
+            <div class="tab-pane" id="extractedTab">
+              <div class="html-preview-controls">
+                <span style="font-size:0.78rem;color:var(--text-muted);">Extracted elements matched by CSS selector</span>
+                <button type="button" class="btn-quick-action" id="btnCopyExtracted" title="Copy Extracted Content">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <span>Copy Extracted</span>
+                </button>
+              </div>
+              <div id="extractedList" class="empty-tab-msg">No extraction selector specified in request.</div>
+            </div>
+
+            <!-- Cookies View -->
+            <div class="tab-pane" id="browserStateTab">
+              <div id="browserStateList">No cookies harvested yet.</div>
+            </div>
+
+            <!-- Headers View -->
+            <div class="tab-pane" id="headersTab">
+              <div id="headersList">No headers available.</div>
+            </div>
+
+            <!-- Execution Logs View -->
+            <div class="tab-pane" id="logsTab">
+              <div id="logsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Step-by-step pipeline execution logs stream here...</div>
+            </div>
+
+            <!-- Turnstile Token View -->
+            <div class="tab-pane" id="turnstileTab">
+              <div id="turnstileContent">No Turnstile token requested.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= MODE 2: DEDICATED TURNSTILE SOLVER STUDIO ================= -->
+      <div class="studio-mode-pane" id="paneModeTurnstile" style="display:none;">
+        <div class="solver-intro-banner">
+          <div class="solver-intro-icon">
+            <svg class="svg-icon" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="solver-intro-content">
+            <h3>Turnstile Token Studio</h3>
+          </div>
+          <div class="solver-presets">
+            <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Test Presets:</span>
+            <button type="button" class="btn-preset btn-preset-solver" data-sitekey="1x00000000000000000000AA" data-siteurl="https://example.com">Always Pass (Demo)</button>
+            <button type="button" class="btn-preset btn-preset-solver" data-sitekey="0x4AAAAAAADnPIDROrmt1Wwj" data-siteurl="https://2captcha.com/demo/cloudflare-turnstile">2Captcha Demo</button>
+          </div>
+        </div>
+
+        <form id="turnstileSolveForm" class="studio-form">
+          <div class="solver-form-card">
+            <div class="cfg-grid-2">
+              <div class="cfg-field">
+                <label class="cfg-label" for="tsSitekey">Turnstile Sitekey</label>
+                <div class="input-with-action">
+                  <input type="text" id="tsSitekey" class="cfg-input" placeholder="0x4AAAAAA..." pattern="[A-Za-z0-9_\-]{1,128}" required />
+                  <button type="button" class="btn-cfg-action btn-paste-action btn-icon-only" id="btnPasteSitekey" title="Paste from clipboard" aria-label="Paste sitekey">
+                    <svg class="svg-icon" viewBox="0 0 24 24">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="tsSiteurl">Target Site URL</label>
+                <input type="url" id="tsSiteurl" class="cfg-input" placeholder="https://example.com/protected-page" required />
+              </div>
+            </div>
+
+            <div class="cfg-grid-3" style="margin-top:16px;">
+              <div class="cfg-field" style="grid-column: span 2;">
+                <label class="cfg-label" for="tsProxy">Egress Proxy URL (Optional)</label>
+                <div class="input-with-action">
+                  <input type="text" id="tsProxy" class="cfg-input" placeholder="http://user:pass@host:port or direct (leave blank for direct/WARP)" />
+                  <button type="button" class="btn-cfg-action btn-paste-action btn-icon-only" id="btnPasteSavedProxyTs" title="Insert Saved Proxy" aria-label="Paste saved proxy">
+                    <svg class="svg-icon" viewBox="0 0 24 24">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="tsTimeout">Solve Timeout (Seconds)</label>
+                <input type="number" id="tsTimeout" class="cfg-input" value="30" min="5" max="120" />
+              </div>
+            </div>
+
+            <div class="solver-submit-row">
+              <button type="submit" id="btnSubmitSolve" class="btn-send btn-solver-action">
+                <svg class="svg-icon btn-send-icon" id="solverBtnIcon" viewBox="0 0 24 24">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                <span id="solverBtnLabel">Turnstile Token</span>
+                <kbd class="kbd-shortcut">↵</kbd>
+              </button>
+              <button type="button" class="btn-reset-solver" id="btnResetSolver">Clear Form</button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Turnstile Response Panel (Matches Scraping Studio) -->
+        <div class="response-panel" id="turnstileResponsePanel">
+          <div class="response-metrics">
+            <div class="metric-pill" id="solverStatusPill">Status: Idle</div>
+            <div class="metric-pill info" id="solverEnginePill">Engine: BROWSER</div>
+            <div class="metric-pill" id="solverSitekeyPill">Sitekey: --</div>
+            <div class="metric-pill" id="solverProxyPill">Proxy: Direct</div>
+            <div class="metric-pill" id="solverTimePill">Latency: -- s</div>
+            <div class="response-quick-actions">
+              <button type="button" class="btn-quick-action" id="btnCopyTurnstileToken" title="Copy Solved Token">
+                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span id="btnCopyTokenText">Copy Token</span>
+              </button>
+              <button type="button" class="btn-quick-action" id="btnCopySolverJson" title="Copy Raw Response JSON">
+                <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                <span>Copy JSON</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="tab-nav">
+            <button type="button" class="tab-btn active" data-tab="tsTokenTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Token Output (<span id="tokenLenBadge">0 chars</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsJsonTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              JSON Response
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsIntegrationTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Integration Code
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsSubmissionsTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+              Captured Submissions (<span id="tsSubmissionsCount">0</span>)
+            </button>
+            <button type="button" class="tab-btn" data-tab="tsLogsTab">
+              <svg class="svg-icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>
+              Pipeline Logs
+            </button>
+          </div>
+
+          <div class="tab-content">
+            <!-- Token View -->
+            <div class="tab-pane active" id="tsTokenTab">
+              <pre><code id="turnstileTokenOutput" style="color:#38bdf8;word-break:break-all;white-space:pre-wrap;">// Configure sitekey and target URL above and click "Turnstile Token"...</code></pre>
+            </div>
+
+            <!-- JSON Output View -->
+            <div class="tab-pane" id="tsJsonTab">
+              <pre><code id="solverRawJson" class="language-json">// Awaiting solver execution...</code></pre>
+            </div>
+
+            <!-- Integration Code View -->
+            <div class="tab-pane" id="tsIntegrationTab">
+              <div class="html-preview-controls">
+                <span style="font-size:0.78rem;color:var(--text-muted);">How to forward this token in your cURL or Python scraping script</span>
+                <button type="button" class="btn-quick-action" id="btnCopyIntegrationSnippet" title="Copy Integration Code">
+                  <svg class="svg-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <span>Copy Code</span>
+                </button>
+              </div>
+              <pre><code id="tokenCurlSnippet" class="language-bash"># cURL verification submission:
+curl -X POST "https://example.com/protected-page" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "cf-turnstile-response=&lt;TOKEN&gt;"</code></pre>
+            </div>
+
+            <!-- Captured Submissions View -->
+            <div class="tab-pane" id="tsSubmissionsTab">
+              <div id="tsSubmissionsList" style="font-family:var(--font-mono);font-size:0.84rem;color:#a1a1aa;line-height:1.7;">No postback form submissions captured yet.</div>
+            </div>
+
+            <!-- Execution Logs View -->
+            <div class="tab-pane" id="tsLogsTab">
+              <div id="tsLogsList" style="font-family:var(--font-mono);font-size:0.86rem;line-height:1.7;color:#a1a1aa;">// Headless browser challenge solver logs stream here...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>

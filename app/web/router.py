@@ -7,10 +7,39 @@ from fastapi.responses import HTMLResponse
 
 from app.api.v1.endpoints.fetch import fetch
 from app.core.auth import verify_api_key
-from app.core.config import DOCS_HTML_PATH
+from app.core.config import DOCS_HTML_PATH, TEMPLATES_DIR
 from app.schemas.scraping import FetchRequest, FetchResponse
 
 web_router = APIRouter(include_in_schema=False)
+
+
+def render_docs_html() -> str:
+    """Assemble documentation template from modular components if present, or fallback to index.html."""
+    components_dir = TEMPLATES_DIR / "components"
+    if components_dir.exists():
+        order = [
+            "header.html",
+            "hero.html",
+            "studio.html",
+            "cache.html",
+            "endpoints.html",
+            "guides.html",
+            "footer.html",
+        ]
+        parts = []
+        for name in order:
+            path = components_dir / name
+            if path.exists():
+                parts.append(path.read_text(encoding="utf-8"))
+        if parts:
+            html = "\n".join(parts)
+            if not DOCS_HTML_PATH.exists() or DOCS_HTML_PATH.read_text(encoding="utf-8") != html:
+                DOCS_HTML_PATH.write_text(html, encoding="utf-8")
+            return html
+
+    if DOCS_HTML_PATH.exists():
+        return DOCS_HTML_PATH.read_text(encoding="utf-8")
+    return "<h1>Anti API Documentation</h1><p>Documentation template not found.</p>"
 
 
 @web_router.get("/", response_class=HTMLResponse)
@@ -18,12 +47,7 @@ web_router = APIRouter(include_in_schema=False)
 @web_router.get("/playground", response_class=HTMLResponse)
 async def home_docs() -> HTMLResponse:
     """Serve interactive web documentation, playground, and cache explorer."""
-    if DOCS_HTML_PATH.exists():
-        return HTMLResponse(content=DOCS_HTML_PATH.read_text(encoding="utf-8"))
-    return HTMLResponse(
-        content="<h1>Anti API Documentation</h1><p>Documentation template not found.</p>",
-        status_code=404,
-    )
+    return HTMLResponse(content=render_docs_html())
 
 
 @web_router.post("/playground/fetch", response_model=FetchResponse)

@@ -10,9 +10,10 @@ import time
 from urllib.parse import urljoin, urlparse
 
 import httpcloak
+import filetype
 
 from app.core.config import DEBUG, MAX_RESPONSE_MB
-from app.core.proxy import mask_proxy, normalize_proxy, redact
+from app.core.proxy import forbidden_target, mask_proxy, normalize_proxy, redact
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,25 @@ def _read_capped(stream, max_bytes: int) -> tuple[bytes, bool]:
     return b"".join(chunks), False
 
 
+def _sniff_download(data: bytes) -> str | None:
+    """Magic-byte check on the first chunk: catches servers that serve a file with a text-ish
+    or missing Content-Type. Returns the detected type (e.g. 'video/mp4') or None for text.
+
+    Known signatures go through filetype.guess; unknown payloads are text unless they carry
+    NUL/control bytes (high bytes alone are normal text: UTF-8, latin-1 accents and so on).
+    """
+    if not data or data[:1].isspace() or data.lstrip()[:1] in (b"<", b"{", b"["):
+        return None
+    kind = filetype.guess(data[:261]) if len(data) >= 8 else None
+    if kind:
+        return kind.mime
+    head = data[:512]
+    if b"\x00" in head:
+        return "application/octet-stream"
+    controls = sum(b < 9 or 13 < b < 32 for b in head)
+    return None if controls / len(head) <= 0.02 else "application/octet-stream"
+
+
 def _decode_body(data: bytes, headers: dict[str, str]) -> str:
     if not data:
         return ""
@@ -209,9 +229,13 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
         # Per-request cookies belong to the origin host; a redirect to another site must not receive them
         # (cookies already stored in the session jar are scoped by domain and travel correctly)
         same_host = urlparse(current_url).hostname == origin_host
+        # Browser rule: credentials the caller set for the origin never follow a redirect to another host
+        hop_headers = headers if same_host else {
+            k: v for k, v in headers.items() if k.lower() not in ("authorization", "cookie", "proxy-authorization")
+        }
         native = asyncio.ensure_future(
             session.request_stream_async(
-                method=current_method, url=current_url, headers=headers, data=current_payload,
+                method=current_method, url=current_url, headers=hop_headers, data=current_payload,
                 cookies=cookies if same_host else {}, allow_redirects=False, timeout=remaining,
             )
         )
@@ -227,6 +251,10 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
             "location": urljoin(current_url, location) if location and stream.status_code in _REDIRECT_STATUSES else None,
         })
         if stream.status_code in _REDIRECT_STATUSES and location and hop < _MAX_REDIRECTS:
+            if forbidden_target(urlparse(urljoin(current_url, location)).hostname):
+                # A public URL redirecting into the server's own network: hand back the redirect, never follow it
+                logger.warning("httpcloak: %s redirects to an internal host; not following", current_url)
+                break
             current_url = urljoin(current_url, location)
             if stream.status_code == 303 or (stream.status_code in (301, 302) and current_method not in ("GET", "HEAD")):
                 current_method, current_payload = "GET", None
@@ -243,6 +271,14 @@ async def _request(tracker: "_NativeTracker", session, *, method: str, url: str,
     reader = asyncio.ensure_future(asyncio.to_thread(_read_capped, stream, max_bytes))
     tracker.watch(reader)
     data, capped = await asyncio.wait_for(asyncio.shield(reader), timeout=max(1.0, deadline - time.monotonic()))
+    sniffed = _sniff_download(data)
+    if sniffed:
+        reason = (
+            f"download detected by content ({sniffed}) despite Content-Type "
+            f"'{_header(flat, 'content-type') or 'none'}'; not read"
+        )
+        logger.info("httpcloak: %s -> %s", current_url, reason)
+        return stream, b"", reason, (chain if len(chain) > 1 else [])
     note = f"body cut at {max_bytes / 1048576:.0f} MB limit" if capped else None
     if capped:
         logger.warning("httpcloak: %s -> %s", current_url, note)
@@ -400,7 +436,8 @@ async def httpcloak_fetch(
             if refresh_target:
                 current_url = getattr(resp, "final_url", url) or url
                 redirect_target = urljoin(current_url, refresh_target)
-                if redirect_target != current_url:
+                if redirect_target != current_url and redirect_target.startswith(("http://", "https://")) \
+                        and not forbidden_target(urlparse(redirect_target).hostname):
                     logger.info(
                         "Following Refresh redirect (depth=%d): %s -> %s",
                         _redirect_depth + 1, current_url, redirect_target,

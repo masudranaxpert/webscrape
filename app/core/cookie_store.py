@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import fnmatch
+import json
 import logging
 import time
 from collections import OrderedDict
@@ -89,6 +90,8 @@ class CookieStore:
         self._max_sessions = max_sessions
         self._domain_store: OrderedDict[str, dict] = OrderedDict()
         self._session_store: OrderedDict[str, dict] = OrderedDict()
+        # True when entries changed since the last snapshot was written to disk
+        self.dirty = False
 
     @staticmethod
     def _is_session_key(key: str) -> bool:
@@ -278,6 +281,7 @@ class CookieStore:
             inject_cookies=inject_cookies,
             max_cookies=max_cookies,
         )
+        self.dirty = True
         if self._is_session_key(key):
             # Session entries have capped ephemeral TTL (default 10 min) and dedicated LRU store
             session_ttl = min(ttl, DEFAULT_SESSION_TTL)
@@ -341,6 +345,7 @@ class CookieStore:
             elif purge_root:
                 self._domain_store.pop(root, None)
                 removed = True
+        self.dirty = self.dirty or removed
         return removed
 
     def invalidate_identity(self, identity: str) -> int:
@@ -351,7 +356,51 @@ class CookieStore:
             for key in [k for k in bucket if k.startswith(prefix)]:
                 del bucket[key]
                 removed += 1
+        self.dirty = self.dirty or bool(removed)
         return removed
+
+    # -- persistence ---------------------------------------------------------------------------------------------
+
+    def snapshot(self, max_bytes: int) -> bytes:
+        """Live entries as JSON, newest first until `max_bytes`: the least recently used entries are dropped first."""
+        now = time.time()
+        out: dict[str, dict] = {"domains": {}, "sessions": {}}
+        size = 32
+        for bucket_name, bucket in (("sessions", self._session_store), ("domains", self._domain_store)):
+            for key in reversed(list(bucket)):
+                entry = bucket[key]
+                if entry["expires_at"] <= now:
+                    continue
+                size += len(json.dumps(entry)) + len(key) + 8
+                if size > max_bytes:
+                    break
+                out[bucket_name][key] = entry
+        # Restore LRU order (oldest first) so load() rebuilds the same eviction order
+        for name in out:
+            out[name] = dict(reversed(list(out[name].items())))
+        return json.dumps({"version": 1, **out}).encode("utf-8")
+
+    def restore(self, raw: bytes) -> int:
+        """Load a snapshot, skipping expired entries and respecting the LRU capacities. Returns entries loaded."""
+        data = json.loads(raw.decode("utf-8"))
+        now = time.time()
+        loaded = 0
+        for bucket_name, bucket, cap in (
+            ("domains", self._domain_store, self._max_domains),
+            ("sessions", self._session_store, self._max_sessions),
+        ):
+            for key, entry in (data.get(bucket_name) or {}).items():
+                if not isinstance(entry, dict) or float(entry.get("expires_at", 0)) <= now:
+                    continue
+                if not isinstance(entry.get("cookies"), dict):
+                    continue
+                bucket[key] = entry
+                bucket.move_to_end(key)
+                loaded += 1
+                while len(bucket) > cap:
+                    bucket.popitem(last=False)
+        self.dirty = False
+        return loaded
 
     def all_domains(self) -> dict[str, dict]:
         """Return non-expired domain entries with remaining TTL."""
