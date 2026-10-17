@@ -144,11 +144,11 @@ class BrowserPool:
     async def start(self) -> None:
         """Pre-warm browser environment and initialize concurrency primitives."""
         self._cond = asyncio.Condition()
-        try:
-            bin_path = cb.ensure_binary()
-            logger.info("Using cloakbrowser binary: %s", bin_path)
-        except Exception as err:
-            logger.warning("cloakbrowser binary check warning: %s", err)
+        # Binaries are ensured, updated and pruned in the background (app.core.binaries) under the launch lock, so
+        # start-up never blocks the event loop on a download and no launch races one
+        from app.core import binaries
+
+        self._binaries_task = asyncio.create_task(binaries.run(self._launch_lock))
 
         loop_module = type(asyncio.get_running_loop()).__module__
         if loop_module.startswith("uvloop"):
@@ -534,6 +534,8 @@ class BrowserPool:
             self._cond = asyncio.Condition()
         for task in list(self._probes.values()):
             task.cancel()
+        if getattr(self, "_binaries_task", None):
+            self._binaries_task.cancel()
         async with self._cond:
             workers = list(self._workers.values())
             self._workers.clear()

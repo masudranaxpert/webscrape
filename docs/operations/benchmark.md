@@ -26,7 +26,7 @@ The HTTP engine did not change between the runs; its spread reflects host load a
 2 vCPU during the second run). A single light browser fetch now takes ~1.7–1.8 s of tab time instead of ~3 s.
 
 A first-time Cloudflare solve takes ~9–13 s of one tab. Every following request for that host is an HTTP replay
-(0.1–0.6 s, plus whatever the origin itself needs: target-site's origin alone takes ~0.5 s per page).
+(0.1–0.6 s, plus whatever the origin itself needs: some origins alone take ~0.5 s per page).
 
 ## Memory model
 
@@ -59,7 +59,7 @@ Rule of thumb: **RAM ≈ 150 MB + ~400 MB × browser processes + 60–100 MB × 
 ## Re-running
 
 ```bash
-cat docs/operations/bench.py | nd exec -A <account> -s anti -i -t 1800 <app-id> /app/venv/bin/python -u -
+cat docs/operations/bench.py | nd exec -s anti -i -t 1800 <app-id> /app/venv/bin/python -u -
 ```
 
 It sends real traffic (example.com, cloudflare.com trace, a public Cloudflare test page); keep runs short.

@@ -142,9 +142,9 @@ def test_cookie_cache_never_crosses_identities():
     assert s.get(b_key)["cf_clearance"] == "B"
     assert s.get(direct_key) is None
     # Subdomain cookies are strictly host-scoped and do not pollute root domain or other subdomains
-    assert s.get(s.cache_key("target-site.site", identity=pa)) is None
-    assert s.get(s.cache_key("other.target-site.site", identity=pa)) is None
-    assert s.get(s.cache_key("other.target-site.site")) is None
+    assert s.get(s.cache_key("target-site.example", identity=pa)) is None
+    assert s.get(s.cache_key("other.target-site.example", identity=pa)) is None
+    assert s.get(s.cache_key("other.target-site.example")) is None
 
 
 def test_session_keys_with_identity():

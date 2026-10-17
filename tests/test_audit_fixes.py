@@ -354,3 +354,40 @@ def test_single_license_seat_goes_to_the_default_browser_only(monkeypatch):
     assert pool._may_license("http://warp:8080"), "WARP is the default browser: it holds the seat"
     assert not pool._may_license(None), "direct must not fight WARP for the one seat (~9s of session-limit retries)"
     assert not pool._may_license("http://other.example:1")
+
+
+def test_binary_prune_keeps_current_keyless_pro_and_running_builds(tmp_path, monkeypatch):
+    from cloakbrowser import download, license as cb_license
+    from cloakbrowser.config import get_binary_dir, get_platform_tag
+    from app.core import binaries
+
+    monkeypatch.setenv("CLOAKBROWSER_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOAKBROWSER_LICENSE_KEY", "cb_test_key")
+    current = get_binary_dir()
+    for d in (current, tmp_path / "chromium-140.0.0.1", tmp_path / "chromium-150.0.0.1-pro",
+              tmp_path / "chromium-154.0.0.1-pro", tmp_path / "chromium-120.0.0.1"):
+        d.mkdir(parents=True)
+    pro_bin = tmp_path / "chromium-154.0.0.1-pro" / "chrome"
+    pro_bin.write_text("#!/bin/sh\n")
+    pro_bin.chmod(0o755)
+    (tmp_path / f"latest_pro_version_{get_platform_tag()}").write_text("154.0.0.1")
+
+    seen_env = {}
+
+    def fake_ensure(license_key=None, **_):
+        seen_env["key_visible"] = "CLOAKBROWSER_LICENSE_KEY" in __import__("os").environ
+        return str(current / "chrome")
+
+    monkeypatch.setattr(download, "ensure_binary", fake_ensure)
+    monkeypatch.setattr(download, "check_for_pro_update", lambda key, *a, **k: None)
+    monkeypatch.setattr(cb_license, "validate_license", lambda key: type("I", (), {"valid": True, "plan": "free"})())
+    # A browser still running an old build must never lose its files
+    monkeypatch.setattr(binaries, "_in_use", lambda: {tmp_path / "chromium-120.0.0.1"})
+
+    report = binaries._prepare_sync()
+    left = sorted(p.name for p in tmp_path.glob("chromium-*"))
+    assert left == sorted([current.name, "chromium-120.0.0.1", "chromium-154.0.0.1-pro"]), left
+    assert sorted(report["pruned"]) == ["chromium-140.0.0.1", "chromium-150.0.0.1-pro"]
+    assert report["pro"] == "154.0.0.1"
+    assert seen_env["key_visible"] is False, "keyless ensure must not see the key (it would take the Pro path)"
+    assert __import__("os").environ["CLOAKBROWSER_LICENSE_KEY"] == "cb_test_key", "key restored afterwards"

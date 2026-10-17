@@ -29,7 +29,7 @@ def load_env(path: str = ".env") -> dict[str, str]:
 
 def extract_media_link(
     target_url: str,
-    api_base: str = os.environ.get("ANTI_URL", "https://your-domain.example"),
+    api_base: str = os.environ.get("ANTI_URL", "http://127.0.0.1:8000"),
     api_key: str | None = None,
 ) -> dict[str, str | float]:
     """Extract direct media download link through multi-step challenge resolution."""

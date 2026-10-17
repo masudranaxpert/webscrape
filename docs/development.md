@@ -4,11 +4,11 @@
 
 ```bash
 pip install -r requirements.txt pytest pytest-asyncio httpx
-API_KEY=dev DEBUG=true COOKIE_CACHE_FILE= python -m pytest -q -o asyncio_mode=auto
+API_KEY=dev DEBUG=true COOKIE_CACHE_FILE= CLOAKBROWSER_LICENSE_KEY= python -m pytest -q -o asyncio_mode=auto
 ```
 
 Most tests need neither network nor a browser: they replace the browser launch, the HTTP engine or the widget page
-with fakes. Four tests are skipped unless a real browser site is available (`tests/browser_site.py`).
+with fakes. A few tests launch a real keyless Chromium; keep `CLOAKBROWSER_LICENSE_KEY` empty so they never take the production license seat.
 
 | File | Covers |
 | --- | --- |

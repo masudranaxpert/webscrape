@@ -11,7 +11,7 @@ What happens when the server is switched off for days and turned back on, or whe
 | `anti` starts | Does not wait for WARP (`service_started`): HTTP traffic works immediately; browser escalations through WARP fail with 502 for the few seconds WARP needs | ✓ |
 | Xvfb | Stale `/tmp/.X99-lock` from an unclean shutdown is removed by the entrypoint before Xvfb starts | ✓ |
 | Cookie cache | Restored from `/app/data/cookie_cache.json`; jars whose wall-clock expiry passed while offline are skipped. After days, expect an empty cache and fresh solves | ✓ |
-| Browser binary / GeoIP DB | Baked into the image; no download at start. The GeoIP DB refreshes itself in the background after 30 days, never blocking a launch | ✓ |
+| Browser builds / GeoIP DB | Kept in the `cloak-cache` volume (keyless build seeded from the image, Pro build downloaded once). A background job checks for a newer Pro build and prunes old builds; the GeoIP DB refreshes itself after 30 days. Nothing blocks start-up | ✓ |
 | License | Validated online at the first launch; an invalid key falls back to the keyless build and is not retried for 10 min | ✓ |
 | Exit IPs | WARP may come back with a new exit IP. Old clearances then fail once and are re-solved; the exit-IP probe also drops them | ✓ |
 
@@ -38,7 +38,7 @@ Inside the app:
 ## Checking a cold start by hand
 
 ```bash
-nd status <app-id> -A <account>                       # both running, warp (healthy)
-nd logs <app-id> -A <account> -s anti -n 30            # "Cookie cache restored: N live entries"
-nd exec -A <account> -s anti <app-id> sh -c 'curl -s http://127.0.0.1:8000/health' < /dev/null
+nd status <app-id>                       # both running, warp (healthy)
+nd logs <app-id> -s anti -n 30            # "Cookie cache restored: N live entries"
+nd exec -s anti <app-id> sh -c 'curl -s http://127.0.0.1:8000/health' < /dev/null
 ```

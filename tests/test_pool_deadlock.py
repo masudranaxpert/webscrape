@@ -1,6 +1,6 @@
-"""Browser pool liveness: a hung tab must never freeze the pool (regression for the 2026-10-16 test-server outage).
+"""Browser pool liveness: a hung tab must never freeze the pool (regression for a production outage).
 
-Incident: one target-site tab on the proxy browser never finished; with MAX_BROWSERS=1 every direct request queued for a
+Incident: one tab on the proxy browser never finished; with MAX_BROWSERS=1 every direct request queued for a
 slot forever, the drain rule then blocked new proxy tabs too, and the whole service stopped serving browser requests.
 """
 
@@ -41,7 +41,7 @@ def _pool(max_browsers: int = 1, max_tabs: int = 5) -> tuple[BrowserPool, list[s
 
 
 def _fake_jobs(pool: BrowserPool, hang_urls: set[str]) -> None:
-    """Replace the real tab with a stub: URLs in `hang_urls` hang forever, like the stuck target-site tab."""
+    """Replace the real tab with a stub: URLs in `hang_urls` hang forever, like the stuck tab."""
 
     async def fake_run_context(worker, url, *args, **kwargs):
         if url in hang_urls:
@@ -97,14 +97,14 @@ def test_outage_scenario_fails_fast_then_recovers():
     async def run():
         _with_budget(job_overhead=0.6, queue_timeout=0.4)
         pool, _ = _pool(max_browsers=1)
-        _fake_jobs(pool, {"https://target-site/stuck"})
+        _fake_jobs(pool, {"https://target.example/stuck"})
 
-        stuck = asyncio.create_task(pool.solve_and_fetch("https://target-site/stuck", cf_wait=0, proxy=PROXY))
+        stuck = asyncio.create_task(pool.solve_and_fetch("https://target.example/stuck", cf_wait=0, proxy=PROXY))
         await asyncio.sleep(0.05)
 
         t0 = time.monotonic()
         direct = [asyncio.create_task(pool.solve_and_fetch(f"https://hmaal/{i}", cf_wait=0)) for i in range(4)]
-        proxied = asyncio.create_task(pool.solve_and_fetch("https://target-site/next", cf_wait=0, proxy=PROXY))
+        proxied = asyncio.create_task(pool.solve_and_fetch("https://target.example/next", cf_wait=0, proxy=PROXY))
         results = await asyncio.wait_for(asyncio.gather(*direct, proxied, stuck, return_exceptions=True), timeout=3)
         elapsed = time.monotonic() - t0
 
@@ -116,7 +116,7 @@ def test_outage_scenario_fails_fast_then_recovers():
 
         # Once the wedged tab is gone, both identities are served again
         assert await pool.solve_and_fetch("https://hmaal/after", cf_wait=0) == "ok:https://hmaal/after"
-        assert await pool.solve_and_fetch("https://target-site/after", cf_wait=0, proxy=PROXY) == "ok:https://target-site/after"
+        assert await pool.solve_and_fetch("https://target.example/after", cf_wait=0, proxy=PROXY) == "ok:https://target.example/after"
 
     asyncio.run(run())
 

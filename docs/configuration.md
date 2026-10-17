@@ -1,7 +1,7 @@
 # Configuration
 
 All settings are environment variables, read once at start-up in `app/core/config.py` (restart to change).
-`.env.example` is the annotated template; production sets them in the nd panel (`nd env list <app-id>`).
+`.env.example` is the annotated template; on NextDeploy they are set in the panel (`nd env list <app-id>`).
 
 Empty values are treated as unset for strings; booleans accept `true/1/yes`. A non-numeric value for a numeric
 setting stops the app at start-up.
@@ -11,7 +11,7 @@ setting stops the app at start-up.
 | Variable | Default | Used in | What / why |
 | --- | --- | --- | --- |
 | `API_KEY` | — | `core/auth.py` | Key for `X-API-Key` / Bearer auth. The app refuses to start without it unless `DEBUG=true` |
-| `CLOAKBROWSER_LICENSE_KEY` | empty | `core/browser.py` (read by cloakbrowser) | Pro license. Empty or invalid → keyless build (challenged more often). An "invalid or expired" answer is remembered for 10 min so launches stop re-validating it (the free plan reports a seat busy on another machine the same way) |
+| `CLOAKBROWSER_LICENSE_KEY` | empty | `core/browser.py`, `core/binaries.py` | Pro license: only the default browser can use it, see [Browsers & license](browsers.md). Empty or invalid → keyless build (challenged more often). An "invalid or expired" answer is remembered for 10 min so launches stop re-validating it (the free plan reports a seat busy on another machine the same way) |
 
 ## Server
 
@@ -78,7 +78,7 @@ setting stops the app at start-up.
 
 | Variable | Note |
 | --- | --- |
-| `CLOAKBROWSER_AUTO_UPDATE` | Forced to `false` (`config.py`) so the binary baked into the image never changes underneath |
+| `CLOAKBROWSER_AUTO_UPDATE` | Forced to `false` (`config.py`) so a launch never downloads; updates run in the background instead (see [Browsers & license](browsers.md#updates-and-disk)) |
 | `MALLOC_ARENA_MAX`, `DISPLAY` | Set by `docker-entrypoint.sh` |
 | `VERBOSE_BROWSER_LOGS`, `COMPOSE_PROFILES` | Present in the production panel but **not read by the code**; safe to delete |
 

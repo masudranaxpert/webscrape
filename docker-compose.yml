@@ -10,6 +10,10 @@ services:
     shm_size: "512mb"
     volumes:
       - anti-data:/app/data
+      # CloakBrowser builds (keyless + Pro, ~700 MB each) and the GeoIP DB. A new volume is seeded from the image's
+      # baked keyless build; the Pro build is downloaded once and then kept across deploys. app/core/binaries.py
+      # updates and prunes them in the background.
+      - cloak-cache:/home/ubuntu/.cloakbrowser
     # Docker never restarts an unhealthy container by itself. After 4 failed checks in a row (2 min) the check stops
     # uvicorn gracefully (the cookie cache is saved on shutdown); tini then exits and `restart` brings it back.
     healthcheck:
@@ -66,3 +70,4 @@ networks:
 volumes:
   warp-data:
   anti-data:
+  cloak-cache:

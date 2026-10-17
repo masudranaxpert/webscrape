@@ -2,8 +2,6 @@
 
 A FastAPI service that fetches pages protected by Cloudflare. It tries a fast TLS-fingerprinted HTTP request first and falls back to a stealth Chromium only when a challenge appears. It can also return the Turnstile token a page issues.
 
-Live: https://your-domain.example
-
 ## How it works
 
 1. **HTTP first.** `httpcloak` sends the request with a browser TLS fingerprint. Most requests end here.

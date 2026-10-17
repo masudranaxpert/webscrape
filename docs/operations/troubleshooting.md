@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Start with the `logs` array of the `/fetch` response, then `GET /health`, then the container logs
-(`nd logs <app-id> -A <account> -s anti -n 200`).
+(`nd logs <app-id> -s anti -n 200`).
 
 ## WARP proxy stops answering
 
@@ -17,7 +17,7 @@ requests per second, both **10** by default. One Chromium page load exceeds that
 `:8080` stops answering for 90 s. To confirm by hand:
 
 ```bash
-nd exec -A <account> -s warp <app-id> sh -c \
+nd exec -s warp <app-id> sh -c \
   'curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace;
    curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace' < /dev/null
 ```

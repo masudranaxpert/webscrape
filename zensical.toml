@@ -11,6 +11,7 @@ nav = [
   { "Architecture" = [
     { "How it works" = "architecture.md" },
     { "Egress & WARP" = "egress.md" },
+    { "Browsers & license" = "browsers.md" },
     { "Caching & queues" = "caching-and-queues.md" },
     { "Design decisions" = "decisions.md" },
   ] },

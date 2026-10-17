@@ -90,8 +90,4 @@ plain HTTP requests are unaffected because they go direct. `/health` shows `"war
 
 ## Licensing note
 
-The CloakBrowser license (free plan: one seat) goes to exactly one browser, the default one: the WARP browser when
-`WARP_PROXY` is set, otherwise the direct one. The other browsers run the keyless build. Letting two browsers try for
-the one seat cost ~9 s per launch in "session limit" retries before falling back anyway. The seat holder runs the Pro
-build (Chromium 154), the others Chromium 146, so their User-Agents differ; the HTTP preset follows whichever UA
-earned the cookies.
+Only the default browser (WARP when set) can hold the license seat; proxies always run the keyless build. Full matrix in [Browsers & license](browsers.md).

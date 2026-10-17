@@ -20,7 +20,7 @@ async def test_cookie_store() -> None:
     # Verify subdomain cookie caching does not pollute root domain
     store.set("sub.target-site.example", {"cf_clearance": "clr_sub"}, ttl=10)
     assert "sub.target-site.example" in store.all_domains()
-    assert "target-site.site" not in store.all_domains(), "Subdomain cookies must not create phantom root domain"
+    assert "target-site.example" not in store.all_domains(), "Subdomain cookies must not create phantom root domain"
     store.invalidate("sub.target-site.example")
 
     # Simulate 69 bloated cookies from movielinkbd.li
